@@ -1,6 +1,6 @@
 // Spindle offline shell: the booth opens instantly (and without signal);
 // music itself still streams from YouTube.
-const CACHE = "spindle-v4";
+const CACHE = "spindle-v5";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-180.png"];
 
 self.addEventListener("install", e => {

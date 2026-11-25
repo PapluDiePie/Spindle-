@@ -609,7 +609,11 @@ function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("sho
    Library model
    shelf = {id, name, kind:'crate'|'liked'|'playlist'|'chart'|'radio', items, loaded, next, total, color}
    ===================================================================== */
-const crate = {id:"crate", name:"Your crate", kind:"crate", items: store.get("spindle.shelf.v1", null) || STARTER.slice(), loaded:true, color:"#e0662a"};
+const isStarter = it => /^s\d+$/.test(it.id || "");
+const crate = {id:"crate", name:"Your crate", kind:"crate", loaded:true, color:"#e0662a",
+  items: (()=>{ const saved = store.get("spindle.shelf.v1", null); const toured = store.get("spindle.toured", false);
+    if(saved) return toured ? saved.filter(x=>!isStarter(x)) : saved;
+    return toured ? [] : STARTER.slice(); })()};
 let shelves = [crate];
 let activeId = "crate";
 const getShelf = id => shelves.find(s=>s.id===id);
@@ -794,10 +798,10 @@ function renderTabs(){
     c.onclick = signIn; box.appendChild(c);
   }
   const act = document.createElement("div"); act.className = "crate-act";
-  act.innerHTML = `<button id="c-play">Play all</button><button id="c-shuffle">Shuffle</button>${active().kind==="radio" ? `<button id="c-clear">Clear</button>` : ""}`;
+  act.innerHTML = (active().items.length ? `<button id="c-play">Play all</button><button id="c-shuffle">Shuffle</button>` : "") + (active().kind==="radio" ? `<button id="c-clear">Clear</button>` : "");
   box.appendChild(act);
-  $("c-play").onclick = ()=>dropOnDeck({kind:"shelf", shelfId:activeId});
-  $("c-shuffle").onclick = ()=>dropOnDeck({kind:"shelf", shelfId:activeId, shuffle:true});
+  if($("c-play")) $("c-play").onclick = ()=>dropOnDeck({kind:"shelf", shelfId:activeId});
+  if($("c-shuffle")) $("c-shuffle").onclick = ()=>dropOnDeck({kind:"shelf", shelfId:activeId, shuffle:true});
   if($("c-clear")) $("c-clear").onclick = ()=>{ shelves = shelves.filter(s=>s.id!=="radio"); setActive("crate"); };
   box.scrollLeft = sx;
 }
@@ -847,6 +851,13 @@ function renderRow(){
   const note = (txt, btn) => { const m = document.createElement("div"); m.className = "shelf-msg"; m.innerHTML = esc(txt) + (btn ? `<br><button>${esc(btn.label)}</button>` : ""); if(btn) m.querySelector("button").onclick = btn.run; return m; };
   if(sh.error){ row.appendChild(note(sh.error, {label:"Sign in again", run:signIn})); pile.appendChild(note(sh.error)); }
   else if(sh.loaded && !sh.items.length && sh.kind !== "crate"){ row.appendChild(note("This crate is empty.")); pile.appendChild(note("This crate is empty.")); }
+  else if(sh.kind === "crate" && !sh.items.length){
+    const msg = isTouch
+      ? "Your crate is empty. Copy an album or playlist link in YouTube Music, then tap + Add record and Paste."
+      : "Your crate is empty. Copy an album or playlist link in YouTube Music and press " + (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "⌘V" : "Ctrl+V") + " anywhere here.";
+    pile.appendChild(note(msg, {label:"+ Add record", run:()=>openAdd()}));
+    row.appendChild(note(msg));
+  }
   if(sh.next && !sh.loading){
     const more = document.createElement("button"); more.className = "spine plain";
     more.innerHTML = `<span class="sp-in"><span class="hole"></span><span class="st">More records…</span></span>`;
@@ -1347,11 +1358,30 @@ $("remove").onclick = ()=>{
   b.dataset.armed = ""; b.textContent = "Remove from crate";
   crate.items = crate.items.filter(x=>x !== it); saveCrate();
   if(playerReady && ytState === 1) motorStop();
-  now.item = null; document.body.classList.remove("loaded");
-  $("m-artist").textContent = "Pick a record"; $("m-title").textContent = "From the wall"; $("m-grade").textContent = "Drag a spine onto the deck";
-  $("remove").hidden = true;
+  clearDeck();
   if(activeId === "crate") renderRow(); renderTabs(); toast(`Removed “${it.title}”`);
 };
+function clearDeck(){
+  now.item = null; now.shelfId = null;
+  document.body.classList.remove("loaded");
+  $("m-artist").textContent = crate.items.length || token ? "Pick a record" : "Nothing on the deck";
+  $("m-title").textContent = crate.items.length || token ? "From the wall" : "Bring your own records";
+  $("m-grade").textContent = crate.items.length || token ? "Drag a spine onto the deck" : "Paste a YouTube Music link to start";
+  $("remove").hidden = true;
+  $("sleeve").style.backgroundImage = "none"; $("sleeve").style.backgroundColor = "rgba(0,0,0,.16)";
+  $("label").style.backgroundImage = "none"; $("fallback").textContent = "";
+  $("np-from").textContent = "Spindle"; $("np-t").textContent = "Empty deck"; $("np-a").textContent = "add a record to play";
+  document.title = "Spindle Record Booth";
+}
+// After the tour, the demo records go back to the shop: the crate is yours alone.
+function removeStarters(){
+  if(!crate.items.some(isStarter)) return;
+  const onDeck = now.item && isStarter(now.item);
+  crate.items = crate.items.filter(x=>!isStarter(x)); saveCrate();
+  if(onDeck){ if(playerReady && ytState === 1) motorStop(); clearDeck(); }
+  if(activeId === "crate") renderRow(); renderTabs();
+  if(!crate.items.length) setTimeout(()=>toast("Demo records cleared. Paste a YouTube Music link to start your crate."), 400);
+}
 
 /* =====================================================================
    Add-to-crate dialog + paste anywhere
@@ -1550,7 +1580,7 @@ function renderTour(){
   $("t-next").focus({preventScroll:true});
 }
 function startTour(){ tourStep = 0; renderTour(); }
-function endTour(){ $("tour").hidden = true; tourTarget?.classList.remove("tour-target"); tourTarget = null; store.set("spindle.toured", true); }
+function endTour(){ $("tour").hidden = true; tourTarget?.classList.remove("tour-target"); tourTarget = null; store.set("spindle.toured", true); removeStarters(); }
 $("open-tour").onclick = startTour;
 
 /* =====================================================================
@@ -1564,7 +1594,7 @@ setView(store.get("spindle.view", "shelf"));
 renderAccount();
 if(crate.items[0]){ now.shelfId = "crate"; now.item = crate.items[0]; }
 renderWall();
-if(now.item){ paintDeck(now.item, crate); document.body.classList.add("loaded"); tintShelf(crate); }
+if(now.item){ paintDeck(now.item, crate); document.body.classList.add("loaded"); tintShelf(crate); } else clearDeck();
 if(token) loadLibrary();
 showRate();
 if(!store.get("spindle.toured", false)) setTimeout(startTour, 1100);
