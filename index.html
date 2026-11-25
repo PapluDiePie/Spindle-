@@ -1,0 +1,1594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spindle Record Booth</title>
+<meta name="description" content="A record-shop listening booth for your YouTube Music. Pull a record off the wall and drop it on the turntable.">
+<meta name="theme-color" content="#8f4a25" id="theme-color">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Spindle">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" defer></script>
+<style>
+/* Layout: a listening booth. The record on the platter paints the whole room in its own colour;
+   one dense wall of spines runs along the bottom. Pulling a record lifts its spine out of the wall. */
+:root{
+  --room:#8f4a25;            /* set per record: the sleeve's own colour */
+  --ink:#f3f0ea;             /* set per record */
+  --card:#6d3519;            /* set per record: a deeper shade of the room */
+  --wall:#e9e6e0;
+  --wall-ink:#161412;
+  --wall-mute:#7b756d;
+  --rail:#1b1917;
+  --shelf-h:clamp(210px, 38vh, 300px);
+  --display:"Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --ease-spring:cubic-bezier(.34,1.56,.64,1);
+  --ease-out:cubic-bezier(.2,.8,.2,1);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{
+  margin:0;background:var(--room);color:var(--ink);
+  font-family:var(--display);font-size:14px;
+  display:grid;grid-template-rows:auto minmax(0,1fr) auto;height:100dvh;overflow:hidden;
+  transition:background-color .9s ease,color .6s ease;
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+.mono{font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase}
+
+/* ---------- header ---------- */
+.top{
+  display:grid;grid-template-columns:1fr auto 1fr;align-items:start;gap:12px;
+  padding:max(20px, env(safe-area-inset-top,0px)) max(24px, env(safe-area-inset-right,0px)) 0 max(24px, env(safe-area-inset-left,0px));
+}
+.brand{display:grid;gap:14px;justify-items:start}
+.logo{font-weight:900;font-size:18px;letter-spacing:-.02em;text-transform:uppercase;line-height:1}
+.qr{width:38px;height:38px;padding:0;border:0;background:none;display:block;cursor:copy}
+.qr svg{width:100%;height:100%;display:block}
+.qr svg path{fill:var(--ink)}
+.qr svg rect{fill:transparent}
+.view{display:inline-flex;border:1px solid rgba(0,0,0,.25);border-radius:2px;overflow:hidden;background:#ece9e3}
+.view button{border:0;background:none;padding:3px 10px;font-family:var(--mono);font-size:10.5px;font-weight:700;color:#161412}
+.view button[aria-pressed="true"]{background:#161412;color:#ece9e3}
+.status{justify-self:end;display:grid;justify-items:end;gap:8px;text-align:right}
+.status .line{white-space:nowrap}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#e0352b;margin-right:8px;vertical-align:1px}
+.dot.on{animation:blink 1.2s steps(2) infinite}
+@keyframes blink{50%{opacity:.2}}
+.links{display:flex;gap:14px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
+.links button{background:none;border:0;padding:0;opacity:.7}
+.links button:hover{opacity:1;text-decoration:underline;text-underline-offset:3px}
+.links img{width:16px;height:16px;border-radius:50%;vertical-align:-4px;margin-right:6px}
+
+/* ---------- booth (hero) ---------- */
+.booth{position:relative;min-height:0}
+.stage{position:absolute;inset:0 0 18px;display:grid;place-items:center;pointer-events:none}
+.platter{--p:min(40vh,22vw,360px);position:relative;width:var(--p);aspect-ratio:1;margin-right:calc(var(--p) * .62);pointer-events:auto;touch-action:none}
+.sleeve{
+  position:absolute;inset:0;z-index:2;
+  background:#2a2a2a center/auto 133.4% no-repeat;
+  box-shadow:0 24px 44px -22px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.12);
+  transition:opacity .45s ease, filter .6s ease, transform .6s var(--ease-out);
+}
+.sleeve .fallback{position:absolute;inset:0;display:grid;place-items:center;font-weight:900;font-size:56px;color:rgba(255,255,255,.85)}
+body.swapping .sleeve{opacity:0;filter:blur(14px);transform:scale(.985)}
+.record{position:absolute;inset:1.5%;z-index:1;transform:translateX(0);transition:transform .8s var(--ease-out);cursor:grab}
+.record:active{cursor:grabbing}
+body.loaded .record{transform:translateX(42%)}
+.disc{
+  position:absolute;inset:0;border-radius:50%;will-change:transform;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 16.5%, rgba(255,255,255,.06) 16.7% 17.1%, transparent 17.3%),
+    repeating-radial-gradient(circle at 50% 50%, #0b0b0b 0 1.1px, #181818 1.5px 2.4px),
+    #101010;
+}
+.sheen{position:absolute;inset:0;border-radius:50%;pointer-events:none;
+  background:conic-gradient(from 25deg,transparent 0 11%,rgba(255,255,255,.08) 15%,transparent 21% 61%,rgba(255,255,255,.06) 66%,transparent 72%)}
+.label{position:absolute;inset:34%;border-radius:50%;overflow:hidden;background:var(--room) center/auto 133.4% no-repeat;box-shadow:0 0 0 1.5px rgba(0,0,0,.45)}
+.label::after{content:"";position:absolute;left:50%;top:50%;width:7%;height:7%;transform:translate(-50%,-50%);border-radius:50%;background:#e8e6e2}
+.arm{
+  position:absolute;z-index:3;right:-62%;top:6%;width:13%;height:auto;color:var(--ink);
+  transform-origin:50% 8%;transform:rotate(-14deg);transition:transform .9s var(--ease-out), color .6s;
+  pointer-events:none;
+}
+body.playing .arm{transform:rotate(16deg)}
+.drop{
+  position:absolute;inset:-5%;right:-48%;z-index:4;border:1.5px dashed currentColor;border-radius:3px;
+  display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .2s, background-color .2s, transform .25s var(--ease-spring);
+}
+.drop span{background:var(--ink);color:var(--room);padding:4px 8px}
+body.dragging .drop{opacity:.55}
+body.drag-over .drop{opacity:1;background:rgba(255,255,255,.12);transform:scale(1.02)}
+
+.meta{position:absolute;left:max(24px, env(safe-area-inset-left,0px));bottom:30px;max-width:min(30vw,420px);min-width:0;z-index:2}
+.meta .artist{display:block;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta h1{margin:0 0 9px;font-weight:900;font-size:clamp(28px,3vw,46px);line-height:.98;letter-spacing:-.035em;text-wrap:balance;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.meta .grade{display:block}
+.meta .remove{margin-top:10px;background:none;border:0;padding:0;text-decoration:underline;text-underline-offset:3px;opacity:.5}
+.meta .remove:hover{opacity:1}
+
+/* player card: a deeper shade of the room */
+.player{
+  position:absolute;right:max(24px, env(safe-area-inset-right,0px));bottom:30px;z-index:2;width:min(272px,calc(100vw - 48px));
+  background:var(--card);color:#fff;border-radius:7px;padding:7px;
+  display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 9px;align-items:center;
+  transition:background-color .9s ease;
+}
+.screen{width:54px;height:54px;border-radius:3px;overflow:hidden;background:#000;grid-row:span 2;position:relative}
+.screen #yt,.screen iframe{position:absolute;width:96px;height:54px;left:-21px;top:0;border:0}
+.np{min-width:0;font-size:10.5px;line-height:1.35;display:grid;gap:1px}
+.np .row1{display:flex;gap:6px;align-items:center;min-width:0}
+.np .from{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700}
+.np .yt{margin-left:auto;flex:0 0 auto;width:12px;height:12px;border-radius:50%;background:#fff;display:grid;place-items:center}
+.np .yt::after{content:"";border-left:4px solid #111;border-top:2.5px solid transparent;border-bottom:2.5px solid transparent;margin-left:1px}
+.np .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np .t b{font-weight:700}
+.ctl{display:flex;align-items:center;gap:1px}
+.side{font-family:var(--mono);font-size:8.5px;font-weight:700;background:rgba(0,0,0,.35);color:#fff;border-radius:2px;padding:2px 5px;margin-right:auto;letter-spacing:.04em}
+.ctl button{background:none;border:0;width:24px;height:24px;display:grid;place-items:center;border-radius:50%;padding:0}
+.ctl button:hover{background:rgba(255,255,255,.15)}
+.ctl svg{width:14px;height:14px;fill:#fff}
+.ctl #play{background:#fff;width:26px;height:26px;margin-left:4px}
+.ctl #play svg{fill:var(--card);width:13px;height:13px}
+.ctl button[aria-expanded="true"]{background:rgba(255,255,255,.22)}
+.bar{grid-column:1/-1;height:2px;background:rgba(255,255,255,.22);border-radius:2px;position:relative}
+.bar i{position:absolute;inset:0 auto 0 0;background:#fff;border-radius:2px;width:0}
+.bar input{position:absolute;inset:-8px 0;width:100%;height:18px;opacity:0;cursor:pointer;margin:0}
+.decks{grid-column:1/-1;display:grid;gap:8px;padding:4px 2px 2px;font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.07em}
+.decks .r{display:flex;align-items:center;gap:8px}
+.rpm{display:inline-flex;border-radius:2px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.55)}
+.rpm button{background:none;border:0;padding:3px 7px;font-family:var(--mono);font-size:9.5px;font-weight:700}
+.rpm button[aria-pressed="true"]{background:#fff;color:#111}
+.decks input[type=range]{flex:1;min-width:0;accent-color:#fff}
+.decks .rate{font-variant-numeric:tabular-nums;min-width:4.4em;text-align:right}
+.decks .radio{margin-left:auto;background:none;border:0;padding:3px 7px;border-radius:2px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.55);font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.07em}
+.decks .tip{opacity:.65;text-transform:none;letter-spacing:0;font-size:10px}
+.hint{grid-column:1/-1;font-family:var(--mono);font-size:10px;opacity:.85;line-height:1.4}
+
+/* ---------- the wall ---------- */
+.wall{background:var(--wall);color:var(--wall-ink);position:relative;min-width:0;box-shadow:0 -1px 0 rgba(0,0,0,.08)}
+.crates{
+  display:flex;align-items:center;gap:2px;overflow-x:auto;scrollbar-width:none;
+  padding:7px max(14px, env(safe-area-inset-right,0px)) 0 max(14px, env(safe-area-inset-left,0px));
+}
+.crates::-webkit-scrollbar{display:none}
+.tab{
+  flex:0 0 auto;display:flex;align-items:center;gap:6px;border:0;background:none;padding:4px 8px 4px 4px;border-radius:2px;
+  font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;color:var(--wall-mute);white-space:nowrap;
+}
+.tab:hover{color:var(--wall-ink)}
+.tab[aria-selected="true"]{background:var(--wall-ink);color:var(--wall)}
+.tab .chip{width:13px;height:13px;border-radius:50%;flex:0 0 auto;background:radial-gradient(circle, var(--c) 0 30%, #111 33% 100%);cursor:grab;touch-action:none}
+.tab .n{opacity:.6}
+.tab.connect{color:var(--wall-ink);box-shadow:inset 0 0 0 1px currentColor;padding-left:8px;margin-left:6px}
+.crate-act{margin-left:auto;display:flex;gap:2px;padding-left:14px;position:sticky;right:0;background:linear-gradient(90deg,transparent,var(--wall) 14px)}
+.crate-act button{white-space:nowrap;border:0;background:none;padding:4px 6px;font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--wall-ink);text-decoration:underline;text-underline-offset:3px}
+
+.shelf{
+  display:flex;align-items:flex-end;gap:2px;overflow-x:auto;overflow-y:hidden;height:var(--shelf-h);
+  padding:0 max(4px, env(safe-area-inset-right,0px)) 0 max(4px, env(safe-area-inset-left,0px));
+  scrollbar-width:none;
+}
+.shelf::-webkit-scrollbar{display:none}
+.rail{height:8px;background:var(--rail)}
+.rail2{height:calc(12px + env(safe-area-inset-bottom,0px));background:var(--wall)}
+
+.spine{
+  --hl:0px;
+  flex:0 0 auto;width:28px;height:calc(var(--shelf-h) - 26px);border:0;padding:0;margin:0;position:relative;
+  background:color-mix(in oklab, var(--c) 80%, #85807a);color:var(--t);border-radius:1px 1px 0 0;
+  transform-origin:50% 100%;
+  transform:translateY(calc(-1 * var(--hl))) rotate(var(--lean,0deg));
+  box-shadow:inset -1px 0 0 rgba(0,0,0,.2), inset 1px 0 0 rgba(255,255,255,.12);
+  transition:transform .45s var(--ease-spring), width .4s var(--ease-out), margin .4s var(--ease-out), opacity .3s, background-color .6s;
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:pan-x pan-y;
+}
+.spine.album{width:32px}
+.sp-in{position:absolute;inset:0;padding:8px 0 8px;display:flex;flex-direction:row;align-items:center;gap:9px;writing-mode:vertical-rl;transform:rotate(180deg)}
+.spine .st{font-weight:800;font-stretch:72%;font-size:12.5px;text-transform:uppercase;letter-spacing:.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-height:68%}
+.spine .sa{font-family:var(--mono);font-size:8.5px;opacity:.82;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-height:34%}
+.spine .hole{writing-mode:horizontal-tb;width:12px;height:12px;border-radius:50%;border:1.3px solid currentColor;opacity:.85;flex:0 0 auto;display:grid;place-items:center}
+.spine .hole::after{content:"";width:3px;height:3px;border-radius:50%;background:currentColor}
+@media (hover:hover){
+  .shelf:not(.scrolling) .spine:hover{--hl:34px}
+  .shelf:not(.scrolling) .spine:hover + .spine, .shelf:not(.scrolling) .spine:has(+ .spine:hover){--hl:9px}
+  .shelf:not(.scrolling) .spine:hover + .spine + .spine, .shelf:not(.scrolling) .spine:has(+ .spine + .spine:hover){--hl:3px}
+}
+/* the record on the deck has been pulled out of the wall; its slot closes up */
+.spine[aria-current="true"]{
+  transform:translateY(-118%);opacity:0;width:0;margin:0 -1px;pointer-events:none;
+  transition:transform .55s var(--ease-out), opacity .25s .3s, width .35s .4s var(--ease-out), margin .35s .4s;
+}
+.spine.lifted{opacity:.25}
+.spine.pressed{--hl:34px}
+
+/* peek: the sleeve that slides out above a spine you point at */
+.peek{
+  position:fixed;left:0;top:0;z-index:55;width:172px;pointer-events:none;
+  opacity:0;transform:translate(var(--px,0px), calc(var(--py,0px) + 18px)) scale(.9);transform-origin:50% 100%;
+  transition:opacity .16s ease, transform .34s var(--ease-spring);
+}
+.peek.on{opacity:1;transform:translate(var(--px,0px), var(--py,0px)) scale(1)}
+.peek.glide{transition:opacity .16s ease, transform .22s var(--ease-out)}
+.pk-art{position:relative;width:172px;height:172px}
+.pk-disc{position:absolute;inset:6%;border-radius:50%;
+  background:radial-gradient(circle, var(--c) 0 17%, #0c0c0c 18% 19.5%, transparent 20%), repeating-radial-gradient(circle, #0c0c0c 0 1.2px, #1a1a1a 1.6px 2.6px);
+  transform:translateY(0);transition:transform .45s .08s var(--ease-out)}
+.peek.on .pk-disc{transform:translateY(-24%)}
+.pk-sleeve{position:absolute;inset:0;background:var(--c) center/auto 133.4% no-repeat;box-shadow:0 18px 30px -14px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.06)}
+.pk-sleeve .fb{position:absolute;inset:0;display:grid;place-items:center;font-weight:900;font-size:42px;color:rgba(255,255,255,.75)}
+.pk-txt{background:#161412;color:#f1eee9;padding:8px 10px 9px;display:grid;gap:3px}
+.pk-txt b{font-weight:800;font-size:13.5px;line-height:1.1;letter-spacing:-.01em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pk-txt span{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pk-txt em{font-style:normal;font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;opacity:.45}
+@media (max-width:820px){ .peek,.pk-art{width:150px} .pk-art{height:150px} }
+.shelf.scrolling{cursor:grabbing}
+.shelf.enter .spine:not([aria-current="true"]){animation:rise .6s var(--ease-spring) backwards;animation-delay:calc(var(--i,0) * 12ms)}
+@keyframes rise{from{transform:translateY(80%);opacity:0}}
+.spine.plain{background:transparent;color:var(--wall-mute);border:1.3px dashed #a8a197;box-shadow:none}
+.spine.plain .st{font-family:var(--mono);font-weight:500;font-size:9.5px;letter-spacing:.1em;font-stretch:100%}
+.spine.skeleton{background:#dcd8d1;animation:pulse 1.1s ease-in-out infinite alternate}
+@keyframes pulse{to{background:#d1ccc4}}
+.shelf-msg{align-self:center;font-family:var(--mono);font-size:11px;color:var(--wall-mute);padding:0 12px 40px;max-width:60ch;line-height:1.55}
+.shelf-msg button{background:var(--wall-ink);color:var(--wall);border:0;padding:6px 10px;margin-top:10px;font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em}
+
+/* pile view: the same crate, sleeves tossed in a heap */
+.pile{display:none;height:var(--shelf-h);overflow-x:auto;overflow-y:hidden;scrollbar-width:none;align-items:center;
+  padding:0 max(34px, env(safe-area-inset-right,0px)) 0 max(34px, env(safe-area-inset-left,0px))}
+.pile::-webkit-scrollbar{display:none}
+body.pile-view .shelf{display:none}
+body.pile-view .pile{display:flex}
+.sl{
+  flex:0 0 auto;width:calc(var(--shelf-h) * .62);aspect-ratio:1;margin-right:calc(var(--shelf-h) * -.24);border:0;padding:0;position:relative;
+  background:var(--c) center/auto 133.4% no-repeat;
+  transform:translateY(var(--y)) rotate(var(--r));transition:transform .4s var(--ease-spring), margin .4s var(--ease-spring), opacity .3s;
+  box-shadow:0 12px 20px -12px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.05);
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+}
+.sl:hover{transform:translateY(calc(var(--y) - 16px)) rotate(0deg) scale(1.04);z-index:5;margin-right:calc(var(--shelf-h) * -.1)}
+.sl[aria-current="true"]{opacity:.25;transform:translateY(calc(var(--y) - 30px)) rotate(var(--r)) scale(.92)}
+.sl.lifted{opacity:.25}
+.sl .cap{position:absolute;left:0;right:0;bottom:0;padding:18px 7px 6px;background:linear-gradient(transparent,rgba(0,0,0,.65));color:#fff;text-align:left;font-weight:800;font-stretch:80%;font-size:11px;text-transform:uppercase;opacity:0;transition:opacity .2s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sl:hover .cap,.sl:focus-visible .cap{opacity:1}
+.sl .fb{position:absolute;inset:0;display:grid;place-items:center;font-weight:900;font-size:30px;color:rgba(255,255,255,.7)}
+
+/* drag ghost */
+.ghost{position:fixed;left:0;top:0;width:90px;height:90px;z-index:60;pointer-events:none;will-change:transform}
+.ghost .g-disc{position:absolute;inset:4%;border-radius:50%;background:radial-gradient(circle, var(--c) 0 30%, #111 32% 100%);transform:translateX(30%);box-shadow:0 6px 14px rgba(0,0,0,.4)}
+.ghost .g-sleeve{position:absolute;inset:0;background:var(--c) center/auto 133.4% no-repeat;box-shadow:0 16px 30px -8px rgba(0,0,0,.55)}
+
+/* ---------- dialogs ---------- */
+dialog{border:0;border-radius:6px;padding:0;width:min(470px,calc(100vw - 32px));max-height:calc(100dvh - 32px);background:#f1eee9;color:#161412;box-shadow:0 30px 80px -20px rgba(0,0,0,.6)}
+dialog::backdrop{background:rgba(10,8,8,.5);backdrop-filter:blur(3px)}
+dialog form{padding:22px;display:grid;gap:14px}
+dialog h2{margin:0;font-weight:900;font-size:26px;line-height:.95;letter-spacing:-.035em}
+dialog p,dialog li{margin:0;font-size:13px;line-height:1.55;color:#4d4842}
+dialog ol{margin:0;padding-left:20px;display:grid;gap:6px}
+dialog code{font-family:var(--mono);font-size:11.5px;background:#e2ded6;padding:1px 4px;overflow-wrap:anywhere}
+dialog label{display:grid;gap:5px;font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:#4d4842}
+dialog input[type=text],dialog input[type=url]{font:15px/1.3 var(--display);padding:9px 10px;border:1.5px solid #c6c0b6;border-radius:3px;background:#fff;color:#161412;width:100%}
+dialog input:focus{outline:none;border-color:#161412}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.link-row{display:flex;gap:8px}
+.link-row input{flex:1;min-width:0}
+.swatches{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.swatches button{width:24px;height:24px;border-radius:50%;border:2px solid transparent;background:var(--c);padding:0}
+.swatches button[aria-pressed="true"]{border-color:#161412;box-shadow:inset 0 0 0 2px #f1eee9}
+.swatches input[type=color]{width:28px;height:28px;border:0;padding:0;background:none}
+.msg{font-family:var(--mono);font-size:11px;min-height:1.4em;color:#4d4842}
+.msg.err{color:#b4231a}
+.btns{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.btn{border-radius:3px;padding:9px 14px;font-family:var(--mono);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;border:1.5px solid #161412;background:none;color:#161412}
+.btn.primary{background:#161412;color:#f1eee9}
+.preview{display:flex;gap:12px;align-items:center}
+.preview .art{width:56px;height:56px;background:#ccc center/auto 133.4% no-repeat;flex:0 0 auto}
+
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);opacity:0;background:#161412;color:#fff;font-family:var(--mono);font-size:11.5px;padding:9px 14px;border-radius:3px;transition:.25s;pointer-events:none;max-width:calc(100vw - 32px);z-index:90}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ---------- first-run tour ---------- */
+.tour{
+  position:fixed;z-index:80;left:50%;top:max(76px, calc(env(safe-area-inset-top,0px) + 64px));transform:translateX(-50%);
+  width:min(390px, calc(100vw - 32px));background:#f1eee9;color:#161412;border-radius:6px;overflow:hidden;
+  box-shadow:0 30px 70px -20px rgba(0,0,0,.6), 0 0 0 1px rgba(0,0,0,.05);
+  animation:tourIn .5s var(--ease-spring);
+}
+@keyframes tourIn{from{transform:translate(-50%,20px) scale(.97);opacity:0}}
+.tour .art{height:150px;background:#161412;position:relative;overflow:hidden;color:#f1eee9}
+.tour .tb{padding:16px 18px 14px;display:grid;gap:8px}
+.tour h3{margin:0;font-weight:900;font-size:24px;line-height:.98;letter-spacing:-.035em;text-wrap:balance}
+.tour p{margin:0;font-size:13.5px;line-height:1.5;color:#3d3833}
+.tour .how{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:13px;line-height:1.45;color:#3d3833}
+.tour .how .mono{padding-top:2px;color:#161412}
+.tour kbd{font-family:var(--mono);font-size:11px;background:#fff;border:1px solid #c6c0b6;border-bottom-width:2px;border-radius:3px;padding:0 5px}
+.tour .foot{display:flex;align-items:center;gap:6px;margin-top:6px}
+.tour .dots{display:flex;gap:5px;margin-right:auto}
+.tour .dots i{width:6px;height:6px;border-radius:50%;background:#c6c0b6;transition:width .3s, background .3s}
+.tour .dots i.on{width:18px;border-radius:3px;background:#161412}
+.tour .skip{border:0;background:none;padding:8px 4px;opacity:.55}
+.tour-target{outline:2px solid #161412 !important;outline-offset:5px;animation:ring 1.2s ease-in-out infinite}
+.top .tour-target{outline-color:var(--ink) !important}
+@keyframes ring{50%{outline-offset:10px}}
+
+/* tour illustrations */
+.a-shelf{position:absolute;left:24px;bottom:18px;display:flex;gap:2px;align-items:flex-end}
+.a-shelf i{width:12px;height:72px;background:var(--c)}
+.a-shelf::after{content:"";position:absolute;left:-10px;right:-10px;bottom:-6px;height:5px;background:#57524b}
+.a-disc{position:absolute;right:40px;top:22px;width:92px;height:92px;border-radius:50%;
+  background:radial-gradient(circle,#e0662a 0 26%,#0c0c0c 27% 29%,transparent 30%),repeating-radial-gradient(circle,#111 0 2px,#222 2px 3.5px);animation:aspin 2.4s linear infinite}
+@keyframes aspin{to{transform:rotate(360deg)}}
+.a-fly{position:absolute;left:52px;bottom:18px;width:12px;height:72px;background:#e0662a;animation:afly 2.8s cubic-bezier(.5,0,.2,1) infinite}
+@keyframes afly{0%,12%{transform:translate(0,0) rotate(0)}26%{transform:translate(0,-40px)}62%,74%{transform:translate(196px,-62px) rotate(80deg);opacity:1}86%,100%{transform:translate(196px,-62px) rotate(80deg) scale(.2);opacity:0}}
+.a-hand{position:absolute;left:47px;bottom:54px;width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.92);box-shadow:0 0 0 6px rgba(255,255,255,.18);animation:ahand 2.8s cubic-bezier(.5,0,.2,1) infinite}
+@keyframes ahand{0%,8%{transform:scale(1.3);opacity:0}12%{transform:scale(1);opacity:1}26%{transform:translate(0,-40px)}62%,74%{transform:translate(196px,-62px);opacity:1}86%,100%{transform:translate(196px,-62px);opacity:0}}
+.a-phone{position:absolute;left:22px;top:22px;width:116px;height:170px;border-radius:15px;background:#2a2622;box-shadow:inset 0 0 0 2px #45403a;padding:11px 9px;font-family:var(--mono);font-size:8px;color:#bdb6ac}
+.a-phone .pl{height:44px;background:linear-gradient(135deg,#8f4a25,#e0662a);margin-bottom:6px}
+.a-phone .pt{font-family:var(--display);font-weight:900;font-size:10px;color:#fff;margin-bottom:5px}
+.a-sheet{position:absolute;left:0;right:0;bottom:0;background:#f1eee9;border-radius:9px 9px 14px 14px;padding:8px;color:#161412;display:grid;gap:4px;animation:sheet 3.2s ease-in-out infinite}
+.a-sheet span{padding:3px 5px}
+.a-sheet .cl{background:#161412;color:#f1eee9;font-weight:700;animation:tap 3.2s ease-in-out infinite}
+@keyframes sheet{0%,15%{transform:translateY(100%)}30%,100%{transform:translateY(0)}}
+@keyframes tap{0%,45%{transform:scale(1)}52%{transform:scale(.92)}60%,100%{transform:scale(1)}}
+.a-browser{position:absolute;left:158px;right:16px;top:38px;border-radius:6px;background:#2a2622;box-shadow:inset 0 0 0 2px #45403a;padding:8px}
+.a-browser .d3{display:flex;gap:3px;margin-bottom:7px}.a-browser .d3 i{width:5px;height:5px;border-radius:50%;background:#6a645c}
+.a-url{font-family:var(--mono);font-size:8.5px;background:#f1eee9;color:#161412;border-radius:3px;padding:5px 6px;white-space:nowrap;overflow:hidden}
+.a-url em{font-style:normal;animation:sel 3.2s steps(1) infinite}
+@keyframes sel{0%,30%{background:transparent}31%,100%{background:#e0662a;color:#fff}}
+.a-cap{position:absolute;font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:#8c857b}
+.a-keys{position:absolute;right:26px;top:32px;display:flex;gap:6px}
+.a-keys span{font-family:var(--mono);font-size:14px;color:#161412;background:#f1eee9;border-radius:5px;padding:8px 10px;box-shadow:0 3px 0 #9b948a;animation:press 2.6s ease-in-out infinite}
+.a-keys span+span{animation-delay:.12s}
+@keyframes press{0%,40%{transform:translateY(0);box-shadow:0 3px 0 #9b948a}46%,56%{transform:translateY(3px);box-shadow:0 0 0 #9b948a}62%,100%{transform:translateY(0)}}
+.a-pill{position:absolute;left:22px;top:40px;font-family:var(--mono);font-size:8.5px;background:#e0662a;color:#fff;padding:5px 8px;border-radius:20px;white-space:nowrap;animation:pill 2.6s cubic-bezier(.5,0,.2,1) infinite}
+@keyframes pill{0%,45%{transform:translate(0,0) scale(1);opacity:1}80%{transform:translate(66px,60px) scale(.35);opacity:.9}88%,100%{transform:translate(66px,60px) scale(.2);opacity:0}}
+.a-new{position:absolute;left:80px;bottom:18px;width:14px;height:72px;background:#e0662a;transform-origin:50% 100%;animation:pop 2.6s var(--ease-spring) infinite}
+@keyframes pop{0%,82%{transform:scaleY(0)}92%,100%{transform:scaleY(1)}}
+.a-avatar{position:absolute;left:50%;top:24px;transform:translateX(-50%);display:flex;gap:8px;align-items:center;background:#f1eee9;color:#161412;border-radius:30px;padding:6px 14px 6px 6px;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.a-avatar i{width:22px;height:22px;border-radius:50%;background:conic-gradient(#4285f4 0 25%,#34a853 0 50%,#fbbc05 0 75%,#ea4335 0)}
+.a-tabs{position:absolute;left:22px;right:22px;bottom:18px;display:grid;gap:8px}
+.a-tabs .tt{display:flex;gap:6px;font-family:var(--mono);font-size:8px;text-transform:uppercase;color:#8c857b}
+.a-tabs .tt span:first-child{background:#f1eee9;color:#161412;padding:2px 5px}
+.a-tabs .ss{display:flex;gap:2px;align-items:flex-end;height:44px;border-bottom:4px solid #57524b}
+.a-tabs .ss i{width:8px;height:100%;background:var(--c);transform-origin:50% 100%;animation:rowin .6s var(--ease-spring) backwards}
+@keyframes rowin{from{transform:scaleY(0)}}
+
+/* ---------- small screens ---------- */
+@media (max-width:820px){
+  /* phone: a fixed, no-scroll app screen (also what you get when it's installed on the home screen) */
+  :root{--shelf-h:clamp(150px, 27dvh, 212px)}
+  html,body{overscroll-behavior:none}
+  body{height:100dvh;overflow:hidden}
+  .top{grid-template-columns:1fr auto;row-gap:8px;padding-top:max(14px, env(safe-area-inset-top,0px));padding-left:max(18px, env(safe-area-inset-left,0px));padding-right:max(18px, env(safe-area-inset-right,0px))}
+  .status{grid-column:1/-1;grid-row:2;justify-self:stretch;justify-items:start;text-align:left;grid-template-columns:1fr;gap:6px}
+  .links{justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;max-width:100%;gap:12px}
+  .links::-webkit-scrollbar{display:none}
+  .links>*{flex:0 0 auto}
+  .qr{display:none}
+  .booth{display:flex;flex-direction:column;gap:10px;padding:6px max(18px, env(safe-area-inset-right,0px)) 12px max(18px, env(safe-area-inset-left,0px))}
+  .stage{position:relative;inset:auto;flex:1 1 auto;min-height:0}
+  .platter{--p:min(46vw, 25dvh, 230px)}
+  .meta{position:static;max-width:none}
+  .meta .artist{margin-bottom:3px}
+  .meta h1{font-size:clamp(22px,7vw,34px);margin-bottom:5px;-webkit-line-clamp:2}
+  .meta .remove{display:none}
+  .player{position:static;width:auto}
+  .tour{top:auto;bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+  .tour .art{height:112px}
+  .tour .tb{padding:12px 16px;gap:6px}
+  .tour h3{font-size:20px}
+  .tour p,.tour .how{font-size:12.5px}
+}
+@media (max-width:820px) and (max-height:700px){
+  .top .status .line{display:none}
+  .platter{--p:min(40vw, 22dvh)}
+}
+@media (display-mode: standalone){ .install-only{display:none!important} }
+@media (prefers-reduced-motion:reduce){
+  .record,.arm,.spine,.sleeve,.sl{transition:none}
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <div class="logo">Spindle</div>
+    <button class="qr" id="qr" aria-label="Copy a link to share Spindle" title="Copy link to share"></button>
+  </div>
+  <div class="view" role="group" aria-label="View">
+    <button id="v-shelf" aria-pressed="true">Shelf</button><button id="v-pile" aria-pressed="false">Pile</button>
+  </div>
+  <div class="status">
+    <div class="line mono"><span class="dot" id="dot"></span><span id="booth-text">Booth 1 free · Spindle</span></div>
+    <div class="links mono">
+      <span id="account"></span>
+      <button id="open-add">+ Add record</button>
+      <button id="open-tour">How it works</button>
+      <button id="open-install" class="install-only" hidden>Install app</button>
+    </div>
+  </div>
+</header>
+
+<main class="booth" id="booth">
+  <div class="stage">
+    <div class="platter" id="platter">
+      <div class="record" id="record" title="Hold the record to brake it"><div class="disc" id="disc"><div class="label" id="label"></div></div><div class="sheen"></div></div>
+      <div class="sleeve" id="sleeve"><div class="fallback" id="fallback"></div></div>
+      <svg class="arm" viewBox="0 0 40 200" aria-hidden="true">
+        <circle cx="20" cy="16" r="13" fill="currentColor"/>
+        <line x1="20" y1="16" x2="20" y2="168" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+        <rect x="11" y="164" width="18" height="26" rx="2" fill="currentColor"/>
+      </svg>
+      <div class="drop mono"><span>Drop to play</span></div>
+    </div>
+  </div>
+
+  <section class="meta" aria-live="polite">
+    <span class="artist mono" id="m-artist">Pick a record</span>
+    <h1 id="m-title">From the wall</h1>
+    <span class="grade mono" id="m-grade">Drag a spine onto the deck</span>
+    <button class="remove mono" id="remove" hidden>Remove from crate</button>
+  </section>
+
+  <section class="player" aria-label="Now playing">
+    <div class="screen"><div id="yt"></div></div>
+    <div class="np">
+      <div class="row1"><span class="from" id="np-from">Spindle</span><span class="yt" title="Playing from YouTube"></span></div>
+      <div class="t" id="np-line"><b id="np-t">Nothing on the deck</b> · <span id="np-a">drop a record</span></div>
+    </div>
+    <div class="ctl">
+      <span class="side" id="side">A1</span>
+      <button id="prev" aria-label="Previous track"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+      <button id="next" aria-label="Next track"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+      <button id="more" aria-label="Turntable controls" aria-expanded="false"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+      <button id="play" aria-label="Start motor"><svg viewBox="0 0 24 24" id="play-icon"><path d="M7 4v16l13-8z"/></svg></button>
+    </div>
+    <div class="bar"><i id="prog"></i><input type="range" id="seek" min="0" max="1000" value="0" aria-label="Seek"></div>
+    <div class="decks" id="decks" hidden>
+      <div class="r">
+        <div class="rpm" role="group" aria-label="Speed"><button id="rpm33" aria-pressed="true">33⅓</button><button id="rpm45" aria-pressed="false">45</button></div>
+        <span class="rate" id="rate">×1.00</span>
+        <button class="radio" id="radio" title="Start a YouTube mix from this track">Radio</button>
+      </div>
+      <label class="r" title="Double-click to reset">Pitch <input type="range" id="pitch" min="-50" max="50" step="5" value="0"></label>
+      <div class="tip">Hold the record to brake it · <span id="cur">0:00</span> / <span id="dur">0:00</span></div>
+    </div>
+    <div class="hint" id="hint" hidden></div>
+  </section>
+</main>
+
+<section class="wall" aria-label="Record wall">
+  <div class="crates" id="crates" role="tablist" aria-label="Crates"></div>
+  <div class="shelf" id="shelf" role="list"></div>
+  <div class="pile" id="pile" role="list"></div>
+  <div class="rail"></div>
+  <div class="rail2"></div>
+</section>
+
+<!-- add-a-record dialog -->
+<dialog id="add">
+  <form method="dialog" id="add-form">
+    <h2>Add to your crate</h2>
+    <p>On YouTube Music, open an album or playlist, tap <b>Share → Copy link</b>, and paste it here. Single songs and regular YouTube links work too.</p>
+    <label>Link
+      <div class="link-row">
+        <input type="url" id="f-link" placeholder="https://music.youtube.com/playlist?list=…" required autocomplete="off">
+        <button type="button" class="btn primary" id="f-paste">Paste</button>
+      </div>
+    </label>
+    <div class="preview" id="f-preview" hidden><div class="art" id="f-art"></div><div class="msg" id="f-found"></div></div>
+    <div class="row2">
+      <label>Title<input type="text" id="f-title" placeholder="Album title" autocomplete="off"></label>
+      <label>Artist<input type="text" id="f-artist" placeholder="Artist" autocomplete="off"></label>
+    </div>
+    <label>Spine colour <div class="swatches" id="f-swatches"></div></label>
+    <div class="msg" id="f-status"></div>
+    <div class="btns">
+      <button type="button" class="btn" id="f-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Put in crate</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- connect dialog -->
+<dialog id="connect">
+  <form method="dialog" id="connect-form">
+    <h2>Connect YouTube Music</h2>
+    <p>Spindle reads your playlists and likes through Google's YouTube API. Google needs a free <b>OAuth Client ID</b> that belongs to you. It takes about five minutes, once.</p>
+    <ol>
+      <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and create a project.</li>
+      <li>In <b>APIs &amp; Services → Library</b>, enable <b>YouTube Data API v3</b>.</li>
+      <li>In <b>Google Auth Platform</b>, set up the consent screen (External). Under <b>Audience</b>, add your own Google address as a test user.</li>
+      <li>In <b>Clients</b>, create a <b>Web application</b> client. Add this page's address as an authorised JavaScript origin: <code id="origin"></code></li>
+      <li>Copy the Client ID and paste it below.</li>
+    </ol>
+    <label>Client ID
+      <input type="text" id="c-id" placeholder="1234567890-abc….apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+    </label>
+    <div class="msg" id="c-status"></div>
+    <div class="btns">
+      <button type="button" class="btn" id="c-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Save &amp; sign in</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="tour" id="tour" role="dialog" aria-modal="false" aria-labelledby="tour-h" hidden></div>
+<div class="peek" id="peek" aria-hidden="true">
+  <div class="pk-art"><div class="pk-disc"></div><div class="pk-sleeve" id="pk-sleeve"></div></div>
+  <div class="pk-txt"><b id="pk-t"></b><span id="pk-a"></span><em id="pk-h"></em></div>
+</div>
+
+<!-- install dialog (mostly for iPhone, where the browser has no install button) -->
+<dialog id="install">
+  <form method="dialog">
+    <h2>Put Spindle on your home screen</h2>
+    <div id="install-body"></div>
+    <div class="btns"><button class="btn primary" value="ok">Got it</button></div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+/* =====================================================================
+   Spindle: a record-shop listening booth for YouTube Music
+   ===================================================================== */
+
+/* ▼▼▼ PASTE YOUR GOOGLE CLIENT ID HERE so everyone you share Spindle with can sign in directly ▼▼▼ */
+const DEFAULT_CLIENT_ID = "";
+/* ▲▲▲ e.g. "1234567890-abc123.apps.googleusercontent.com". See the setup steps in the Connect dialog. ▲▲▲ */
+
+const SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
+const API = "https://www.googleapis.com/youtube/v3/";
+const PALETTE = ["#c2557a","#3d4a7a","#c8452f","#2f6b5e","#d9a53a","#6b4f8a","#8a3b3b","#4f7fa8","#8f4a25","#2b2b2b","#7a8a4f","#e0662a","#8fa9bd","#b85a7a","#d8d0c0","#5f7f6a","#c9a227","#45526b"];
+
+const STARTER = [
+  {title:"Bohemian Rhapsody", artist:"Queen",            video:"fJ9rUzIMcZQ", color:"#8a3b3b"},
+  {title:"Billie Jean",       artist:"Michael Jackson",  video:"Zi_XLOBDo_Y", color:"#2b2b2b"},
+  {title:"Smells Like Teen Spirit", artist:"Nirvana",    video:"hTWKbfoikeg", color:"#4f7fa8"},
+  {title:"Uptown Funk",       artist:"Mark Ronson ft. Bruno Mars", video:"OPf0YbXqDm0", color:"#d9a53a"},
+  {title:"Hello",             artist:"Adele",            video:"YQHsXMglC9A", color:"#8f4a25"},
+  {title:"Never Gonna Give You Up", artist:"Rick Astley", video:"dQw4w9WgXcQ", color:"#c2557a"},
+].map((r,i)=>({id:"s"+i, coverId:r.video, ...r}));
+
+/* ---------- storage ---------- */
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
+  sget(k){ try{ return JSON.parse(sessionStorage.getItem(k)); }catch(e){ return null; } },
+  sset(k, v){ try{ v==null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
+};
+
+/* ---------- helpers ---------- */
+const $ = id => document.getElementById(id);
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const isTouch = matchMedia("(hover:none)").matches;
+const thumb = vid => vid ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : "";
+const fmt = s => { s = Math.max(0, Math.floor(s||0)); return Math.floor(s/60)+":"+String(s%60).padStart(2,"0"); };
+const esc = s => String(s??"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+function hashNum(s){ let h=0; for(const c of String(s)) h=(h*31 + c.charCodeAt(0))|0; return Math.abs(h); }
+const hashColor = s => PALETTE[hashNum(s)%PALETTE.length];
+function rgb(hx){ const n = parseInt(hx.slice(1),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+function hex(r,g,b){ return "#"+[r,g,b].map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,"0")).join(""); }
+function lum(hx){ const [r,g,b] = rgb(hx); return (0.2126*r + 0.7152*g + 0.0722*b)/255; }
+function mix(a, b, k){ const x = rgb(a), y = rgb(b); return hex(x[0]+(y[0]-x[0])*k, x[1]+(y[1]-x[1])*k, x[2]+(y[2]-x[2])*k); }
+const inkFor = hx => lum(hx) > 0.5 ? "#141414" : "#f3f0ea";
+function cleanArtist(a){ return (a||"").replace(/\s*-\s*Topic$/i,"").replace(/VEVO$/i,"").trim(); }
+function cleanTitle(t){ return (t||"").replace(/^(Album|EP|Single)\s*[-–]\s*/i,"").trim(); }
+function tidy(title, channel){
+  let t = (title||"").replace(/\s*[\(\[][^\)\]]*(official|video|audio|lyric|visuali[sz]er|\bhd\b|4k|remaster|m\/v)[^\)\]]*[\)\]]/ig,"").trim();
+  let a = cleanArtist(channel);
+  const m = t.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+  if(m){
+    const lead = m[1].toLowerCase(), al = a.toLowerCase();
+    if(!a || /vevo|records|music|official/i.test(channel||"") || lead.includes(al) || al.includes(lead)){ a = m[1]; t = m[2]; }
+  }
+  return {title: t || title, artist: a};
+}
+let toastT;
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),3000); }
+
+/* =====================================================================
+   Library model
+   shelf = {id, name, kind:'crate'|'liked'|'playlist'|'chart'|'radio', items, loaded, next, total, color}
+   ===================================================================== */
+const crate = {id:"crate", name:"Your crate", kind:"crate", items: store.get("spindle.shelf.v1", null) || STARTER.slice(), loaded:true, color:"#e0662a"};
+let shelves = [crate];
+let activeId = "crate";
+const getShelf = id => shelves.find(s=>s.id===id);
+const active = () => getShelf(activeId) || crate;
+const vidOf = it => it ? (it.vid || it.video || null) : null;
+const keyOf = it => vidOf(it) || it.id;
+function saveCrate(){ store.set("spindle.shelf.v1", crate.items.map(({tinted, dur, ...r})=>r)); }
+
+/* ---------- colour from cover art (needs CORS on i.ytimg.com; falls back to palette) ---------- */
+const colorCache = store.get("spindle.colors", {});
+const colorFail = new Set();
+let colorSaveT;
+function coverColor(vid){
+  return new Promise(res=>{
+    if(!vid || colorFail.has(vid)) return res(null);
+    if(colorCache[vid]) return res(colorCache[vid]);
+    const img = new Image(); img.crossOrigin = "anonymous";
+    img.onload = ()=>{
+      try{
+        const c = document.createElement("canvas"); c.width = c.height = 12;
+        const g = c.getContext("2d"); g.drawImage(img, 70, 0, 180, 180, 0, 0, 12, 12);
+        const d = g.getImageData(0,0,12,12).data;
+        let r=0,gg=0,b=0,w=0;
+        for(let i=0;i<d.length;i+=4){
+          const mx=Math.max(d[i],d[i+1],d[i+2]), mn=Math.min(d[i],d[i+1],d[i+2]);
+          const wt = 0.1 + Math.pow((mx-mn)/255, 1.5) * 2;   // favour the sleeve's strongest colour
+          r+=d[i]*wt; gg+=d[i+1]*wt; b+=d[i+2]*wt; w+=wt;
+        }
+        const h = hex(r/w, gg/w, b/w);
+        colorCache[vid] = h; clearTimeout(colorSaveT); colorSaveT = setTimeout(()=>store.set("spindle.colors", colorCache), 800);
+        res(h);
+      }catch(e){ colorFail.add(vid); res(null); }
+    };
+    img.onerror = ()=>{ colorFail.add(vid); res(null); };
+    img.src = `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`;
+  });
+}
+async function tintShelf(sh){
+  for(const it of sh.items){
+    if(it.tinted) continue;
+    const c = await coverColor(it.coverId || vidOf(it));
+    it.tinted = true;
+    if(c && sh.kind !== "crate"){
+      it.color = c;
+      document.querySelectorAll(`[data-shelf="${sh.id}"][data-key="${CSS.escape(keyOf(it))}"]`).forEach(el=>{ el.style.setProperty("--c", c); el.style.setProperty("--t", inkFor(mix(c, "#85807a", .2))); });
+    }
+    if(c && sh.kind === "crate") it.room = c;   // crate spines keep the colour you picked; the room uses the cover
+    if(c && now.item === it) paintDeck(it, sh);
+  }
+}
+
+/* =====================================================================
+   Google sign-in (token flow, no backend)
+   ===================================================================== */
+let clientId = store.get("spindle.clientId", "") || DEFAULT_CLIENT_ID;
+let token = (()=>{ const t = store.sget("spindle.token"); return t && t.exp > Date.now() ? t : null; })();
+let tokenClient = null, me = null;
+const gisReady = () => !!(window.google && google.accounts && google.accounts.oauth2);
+
+function makeTokenClient(){
+  if(!clientId || !gisReady()) return null;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId, scope: SCOPE,
+    callback: resp => {
+      if(resp.error){ toast("Google sign-in failed: " + resp.error); renderAccount(); return; }
+      token = {access: resp.access_token, exp: Date.now() + (resp.expires_in - 60)*1000};
+      store.sset("spindle.token", token); store.set("spindle.signedIn", true);
+      loadLibrary();
+    },
+    error_callback: err => toast(err.type === "popup_closed" ? "Sign-in window closed." : "Sign-in couldn't start: " + (err.message||err.type)),
+  });
+  return tokenClient;
+}
+async function signIn(){
+  if(!clientId){ openConnect(); return; }
+  for(let i=0; i<30 && !gisReady(); i++) await sleep(100);
+  if(!gisReady()){ toast("Google sign-in didn't load. Check your connection or ad-blocker."); return; }
+  (tokenClient || makeTokenClient()).requestAccessToken({prompt: store.get("spindle.signedIn", false) ? "" : "consent"});
+}
+function signOut(){
+  if(token && gisReady()) google.accounts.oauth2.revoke(token.access, ()=>{});
+  token = null; me = null; store.sset("spindle.token", null); store.set("spindle.signedIn", false);
+  shelves = [crate, ...shelves.filter(s=>s.kind==="radio")]; activeId = "crate";
+  renderWall(); renderAccount(); toast("Signed out of YouTube.");
+}
+async function api(path, params){
+  if(!token || token.exp < Date.now()){ token = null; store.sset("spindle.token", null); renderAccount(); throw new Error("auth"); }
+  const u = new URL(API + path);
+  Object.entries(params||{}).forEach(([k,v])=> v!=null && u.searchParams.set(k, v));
+  const r = await fetch(u, {headers:{Authorization:"Bearer " + token.access}});
+  if(r.status === 401){ token = null; store.sset("spindle.token", null); renderAccount(); throw new Error("auth"); }
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error?.message || ("HTTP " + r.status));
+  return j;
+}
+function renderAccount(){
+  const el = $("account");
+  if(token && me){
+    el.innerHTML = `<button id="signout" title="Sign out">${me.avatar ? `<img src="${esc(me.avatar)}" alt="">` : ""}${esc(me.name)}</button>`;
+    $("signout").onclick = signOut;
+  } else if(token){
+    el.textContent = "Loading library…";
+  } else {
+    el.innerHTML = `<button id="signin">${clientId ? "Sign in with Google" : "Connect YouTube"}</button>`;
+    $("signin").onclick = signIn;
+  }
+}
+async function loadLibrary(){
+  renderAccount();
+  try{
+    const ch = await api("channels", {part:"snippet", mine:true});
+    const c = ch.items?.[0];
+    me = {name: c?.snippet?.title || "You", avatar: c?.snippet?.thumbnails?.default?.url};
+    renderAccount();
+    const pls = []; let pageToken;
+    for(let i=0; i<4; i++){
+      const r = await api("playlists", {part:"snippet,contentDetails", mine:true, maxResults:50, pageToken});
+      pls.push(...(r.items||[])); pageToken = r.nextPageToken; if(!pageToken) break;
+    }
+    shelves = [
+      crate,
+      ...shelves.filter(s=>s.kind==="radio"),
+      {id:"liked", name:"Liked", kind:"liked", items:[], loaded:false, color:"#c8452f"},
+      ...pls.map(p=>({id:p.id, name:p.snippet.title, kind:"playlist", items:[], loaded:false, total:p.contentDetails?.itemCount, color:hashColor(p.id)})),
+      {id:"chart", name:"Trending", kind:"chart", items:[], loaded:false, color:"#d9a53a"},
+    ];
+    const saved = store.get("spindle.activeShelf", null);
+    if(saved && getShelf(saved)) activeId = saved;
+    renderWall();
+    toast(`${pls.length} playlist${pls.length===1?"":"s"} on the wall.`);
+  }catch(e){
+    if(e.message !== "auth") toast("YouTube said: " + e.message);
+    renderAccount();
+  }
+}
+const toTrack = (vid, title, channel) => { const t = tidy(title, channel); return {vid, title:t.title, artist:t.artist, coverId:vid, color:hashColor(vid)}; };
+const dead = t => /^(Deleted|Private) video$/i.test(t||"");
+async function loadShelfItems(sh, more){
+  if(sh.loading || (sh.loaded && !more)) return;
+  sh.loading = true; sh.error = null; if(sh.id === activeId) renderRow();
+  try{
+    let r, items = [];
+    if(sh.kind === "playlist"){
+      r = await api("playlistItems", {part:"snippet,contentDetails", playlistId:sh.id, maxResults:50, pageToken: more ? sh.next : undefined});
+      items = (r.items||[]).filter(x=>!dead(x.snippet?.title)).map(x=>toTrack(x.contentDetails.videoId, x.snippet.title, x.snippet.videoOwnerChannelTitle));
+    } else if(sh.kind === "liked"){
+      r = await api("videos", {part:"snippet", myRating:"like", maxResults:50, pageToken: more ? sh.next : undefined});
+      items = (r.items||[]).map(x=>toTrack(x.id, x.snippet.title, x.snippet.channelTitle));
+      sh.total = r.pageInfo?.totalResults;
+    } else if(sh.kind === "chart"){
+      const region = (navigator.language.split("-")[1] || "US").toUpperCase();
+      r = await api("videos", {part:"snippet", chart:"mostPopular", videoCategoryId:"10", regionCode:region, maxResults:50, pageToken: more ? sh.next : undefined});
+      items = (r.items||[]).map(x=>toTrack(x.id, x.snippet.title, x.snippet.channelTitle));
+    }
+    sh.items.push(...items); sh.next = r?.nextPageToken || null; sh.loaded = true;
+  }catch(e){
+    sh.error = e.message === "auth" ? "Your Google session expired. Sign in again to open this crate." : e.message;
+  }
+  sh.loading = false;
+  if(sh.id === activeId) renderRow();
+  renderTabs();
+  tintShelf(sh);
+}
+
+/* =====================================================================
+   The wall: crate tabs + one shelf (or pile)
+   ===================================================================== */
+const count = sh => sh.kind === "crate" ? sh.items.length : (sh.total ?? (sh.loaded ? sh.items.length : ""));
+function renderTabs(){
+  const box = $("crates"); const sx = box.scrollLeft; box.innerHTML = "";
+  shelves.forEach(sh=>{
+    const b = document.createElement("button");
+    b.className = "tab"; b.setAttribute("role","tab"); b.setAttribute("aria-selected", sh.id === activeId);
+    b.innerHTML = `<span class="chip" style="--c:${sh.color}" title="Drag onto the deck to play this whole crate"></span>${esc(sh.name)} <span class="n">${esc(count(sh))}</span>`;
+    b.onclick = () => { if(!justDragged) setActive(sh.id); };
+    armDrag(b.querySelector(".chip"), {kind:"shelf", shelfId:sh.id});
+    box.appendChild(b);
+  });
+  if(!token){
+    const c = document.createElement("button"); c.className = "tab connect"; c.id = "tab-connect";
+    c.textContent = clientId ? "+ Sign in for your playlists" : "+ Connect YouTube for your playlists";
+    c.onclick = signIn; box.appendChild(c);
+  }
+  const act = document.createElement("div"); act.className = "crate-act";
+  act.innerHTML = `<button id="c-play">Play all</button><button id="c-shuffle">Shuffle</button>${active().kind==="radio" ? `<button id="c-clear">Clear</button>` : ""}`;
+  box.appendChild(act);
+  $("c-play").onclick = ()=>dropOnDeck({kind:"shelf", shelfId:activeId});
+  $("c-shuffle").onclick = ()=>dropOnDeck({kind:"shelf", shelfId:activeId, shuffle:true});
+  if($("c-clear")) $("c-clear").onclick = ()=>{ shelves = shelves.filter(s=>s.id!=="radio"); setActive("crate"); };
+  box.scrollLeft = sx;
+}
+function setActive(id){
+  activeId = id; store.set("spindle.activeShelf", id);
+  const sh = active(); sh.entered = false;
+  renderTabs(); renderRow();
+  $("shelf").scrollLeft = 0; $("pile").scrollLeft = 0;
+  if(!sh.loaded) loadShelfItems(sh);
+}
+function renderWall(){ if(!getShelf(activeId)) activeId = "crate"; renderTabs(); renderRow(); const sh = active(); if(!sh.loaded) loadShelfItems(sh); }
+
+function renderRow(){
+  const sh = active(), row = $("shelf"), pile = $("pile");
+  row.innerHTML = ""; pile.innerHTML = "";
+  attachShelfPhysics(row); attachShelfPhysics(pile);
+  if(!sh.entered && sh.items.length && !reduceMotion){ sh.entered = true; row.classList.add("enter"); setTimeout(()=>row.classList.remove("enter"), 1500); }
+
+  sh.items.forEach((it, i)=>{
+    const key = keyOf(it), cur = isCurrent(sh, it);
+    const b = document.createElement("button");
+    b.className = "spine" + (sh.kind === "crate" && it.list ? " album" : "");
+    b.dataset.shelf = sh.id; b.dataset.key = key; b.setAttribute("role","listitem");
+    b.style.setProperty("--c", it.color); b.style.setProperty("--t", inkFor(mix(it.color, "#85807a", .2))); b.style.setProperty("--i", Math.min(i, 40));
+    b.title = `${it.title}${it.artist ? " — " + it.artist : ""}`;
+    b.setAttribute("aria-label", `${it.title} by ${it.artist||"unknown artist"}`);
+    if(cur) b.setAttribute("aria-current","true");
+    b.innerHTML = `<span class="sp-in"><span class="hole"></span><span class="st">${esc(it.title)}</span><span class="sa">${esc(it.artist||"")}</span></span>`;
+    wire(b, sh, i); row.appendChild(b);
+
+    const s = document.createElement("button");
+    const h = hashNum(key), cover = it.coverId || vidOf(it);
+    s.className = "sl"; s.dataset.shelf = sh.id; s.dataset.key = key; s.setAttribute("role","listitem");
+    s.style.setProperty("--c", it.color);
+    s.style.setProperty("--r", ((h % 15) - 7) + "deg");
+    s.style.setProperty("--y", ((h >> 4) % 26 - 13) + "px");
+    if(cover) s.style.backgroundImage = `url(${thumb(cover)})`;
+    s.setAttribute("aria-label", `${it.title} by ${it.artist||"unknown artist"}`);
+    if(cur) s.setAttribute("aria-current","true");
+    s.innerHTML = `${cover ? "" : `<span class="fb">${esc((it.title||"?").slice(0,2))}</span>`}<span class="cap">${esc(it.title)}</span>`;
+    wire(s, sh, i); pile.appendChild(s);
+  });
+
+  if(sh.loading){
+    for(let i=0;i<Math.min(sh.total||16, 16);i++){ const s=document.createElement("div"); s.className="spine skeleton"; row.appendChild(s); }
+  }
+  const note = (txt, btn) => { const m = document.createElement("div"); m.className = "shelf-msg"; m.innerHTML = esc(txt) + (btn ? `<br><button>${esc(btn.label)}</button>` : ""); if(btn) m.querySelector("button").onclick = btn.run; return m; };
+  if(sh.error){ row.appendChild(note(sh.error, {label:"Sign in again", run:signIn})); pile.appendChild(note(sh.error)); }
+  else if(sh.loaded && !sh.items.length && sh.kind !== "crate"){ row.appendChild(note("This crate is empty.")); pile.appendChild(note("This crate is empty.")); }
+  if(sh.next && !sh.loading){
+    const more = document.createElement("button"); more.className = "spine plain";
+    more.innerHTML = `<span class="sp-in"><span class="hole"></span><span class="st">More records…</span></span>`;
+    more.onclick = () => loadShelfItems(sh, true); row.appendChild(more);
+  }
+  if(sh.kind === "crate"){
+    const add = document.createElement("button"); add.className = "spine plain album"; add.id = "crate-add";
+    add.setAttribute("aria-label","Add a record to your crate");
+    add.innerHTML = `<span class="sp-in"><span class="hole"></span><span class="st">+ Add record</span></span>`;
+    add.onclick = ()=>openAdd(); row.appendChild(add);
+  }
+}
+/* ---------- peek: hover a spine (or press and hold on a phone) to see the sleeve ---------- */
+let peekFor = null, peekT = 0;
+function showPeek(el, it, sh){
+  if(drag && drag.started) return;
+  clearTimeout(peekT);
+  const pk = $("peek"), cover = it.coverId || vidOf(it);
+  const wasOn = pk.classList.contains("on");
+  pk.style.setProperty("--c", it.color || "#333");
+  $("pk-sleeve").style.backgroundImage = cover ? `url(${thumb(cover)})` : "none";
+  $("pk-sleeve").innerHTML = cover ? "" : `<span class="fb">${esc((it.title||"?").slice(0,2))}</span>`;
+  $("pk-t").textContent = it.title;
+  $("pk-a").textContent = it.artist || (sh.kind === "crate" ? "" : sh.name);
+  $("pk-h").textContent = isTouch ? "Drag up to the deck, or tap to play" : (sh.kind === "crate" && it.list ? "LP · click or pull up to play" : "Click or pull up to play");
+  const r = el.getBoundingClientRect(), w = pk.offsetWidth, h = pk.offsetHeight;
+  const lift = el.matches(":hover") || el.classList.contains("pressed") ? 34 : 0;
+  const x = clamp(r.left + r.width/2 - w/2, 8, innerWidth - w - 8);
+  const y = Math.max(8, r.top - h - 14 + (lift ? 0 : -34));
+  pk.classList.toggle("glide", wasOn);
+  pk.style.setProperty("--px", x + "px"); pk.style.setProperty("--py", y + "px");
+  pk.classList.add("on"); peekFor = el;
+}
+function hidePeek(el){
+  if(el && el !== peekFor) return;
+  clearTimeout(peekT);
+  peekT = setTimeout(()=>{ $("peek").classList.remove("on", "glide"); peekFor = null; }, el ? 60 : 0);
+  document.querySelectorAll(".spine.pressed").forEach(s=>s.classList.remove("pressed"));
+}
+$("shelf").addEventListener("scroll", ()=>hidePeek(), {passive:true});
+
+function wire(el, sh, i){
+  const it = sh.items[i];
+  if(el.classList.contains("spine")){
+    el.addEventListener("pointerenter", e=>{ if(e.pointerType === "mouse" && !$("shelf").classList.contains("scrolling")) showPeek(el, it, sh); });
+    el.addEventListener("pointerleave", e=>{ if(e.pointerType === "mouse") hidePeek(el); });
+    el.addEventListener("pointerdown", e=>{
+      if(e.pointerType === "mouse") return;
+      const t = setTimeout(()=>{ if(drag && drag.el === el && !drag.started){ el.classList.add("pressed"); showPeek(el, it, sh); } }, 140);
+      const end = ()=>{ clearTimeout(t); setTimeout(()=>hidePeek(el), 350); el.removeEventListener("pointerup", end); el.removeEventListener("pointercancel", end); };
+      el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+    });
+  }
+  armDrag(el, {kind:"track", shelfId:sh.id, index:i});
+  el.onclick = () => { if(!justDragged) dropOnDeck({kind:"track", shelfId:sh.id, index:i}); };
+  el.oncontextmenu = e => e.preventDefault();
+}
+function isCurrent(sh, it){ return now.shelfId === sh.id && now.item && keyOf(now.item) === keyOf(it); }
+function markCurrent(){
+  document.querySelectorAll('.spine[aria-current="true"], .sl[aria-current="true"]').forEach(el=>el.removeAttribute("aria-current"));
+  if(!now.item || now.shelfId !== activeId) return;
+  document.querySelectorAll(`[data-shelf="${now.shelfId}"][data-key="${CSS.escape(keyOf(now.item))}"]`).forEach(el=>el.setAttribute("aria-current","true"));
+}
+
+/* =====================================================================
+   The booth
+   ===================================================================== */
+const now = {shelfId:null, item:null, queue:null};
+const sideLabel = i => String.fromCharCode(65 + Math.floor(i/6) % 26) + ((i % 6) + 1);   // A1…A6, B1…
+
+function paintDeck(it, sh){
+  const room = it?.room || it?.color || "#8f4a25";
+  const ink = inkFor(room);
+  const card = lum(room) < 0.12 ? mix(room, "#ffffff", .1) : mix(room, "#000000", .28);
+  const r = document.documentElement.style;
+  r.setProperty("--room", room); r.setProperty("--ink", ink); r.setProperty("--card", card);
+  $("theme-color").setAttribute("content", room);
+  $("remove").hidden = !(sh && sh.kind === "crate" && it);
+  if(!it) return;
+  $("m-artist").textContent = it.artist || "Unknown artist";
+  $("m-title").textContent = it.title;
+  const idx = sh ? sh.items.indexOf(it) : -1;
+  const grade = sh?.kind === "crate"
+    ? [it.list ? "LP" : "7″", it.list ? "Full album" : "Single", "33⅓"]
+    : [sideLabel(Math.max(0, idx)), "From " + sh.name, it.dur ? fmt(it.dur) : null];
+  $("m-grade").textContent = grade.filter(Boolean).join(" · ");
+  const cover = it.coverId || vidOf(it);
+  const img = cover ? `url(${thumb(cover)})` : "none";
+  $("sleeve").style.backgroundImage = img; $("sleeve").style.backgroundColor = it.color || room;
+  $("label").style.backgroundImage = img;
+  $("fallback").textContent = cover ? "" : (it.title||"?").slice(0,2);
+  document.title = `${it.title} — Spindle`;
+  $("np-from").textContent = `${it.title}${it.artist ? " · " + it.artist : ""}`;
+  if(ytState !== 1 && ytState !== 3){ $("np-t").textContent = "Cued up"; $("np-a").textContent = isTouch ? "tap play to spin" : "press play or Space to spin"; }
+}
+// Swap: the record slides back into its sleeve, the sleeve dissolves, the new one sharpens in, the record slides out.
+let swapSeq = 0;
+async function swapTo(it, sh){
+  const id = ++swapSeq;
+  if(document.body.classList.contains("loaded")){
+    document.body.classList.remove("loaded");
+    await sleep(380);
+    if(id !== swapSeq) return;
+    document.body.classList.add("swapping");
+    await sleep(300);
+    if(id !== swapSeq) return;
+  } else document.body.classList.add("swapping");
+  paintDeck(it, sh);
+  await sleep(60);
+  document.body.classList.remove("swapping");
+  await sleep(380);
+  if(id !== swapSeq) return;
+  document.body.classList.add("loaded");
+}
+
+async function dropOnDeck(d){
+  const sh = getShelf(d.shelfId); if(!sh || !sh.items.length) return;
+  let index = d.index ?? 0;
+  if(d.shuffle) index = Math.floor(Math.random()*sh.items.length);
+  const it = sh.items[index];
+  now.shelfId = sh.id; now.item = it;
+  swapTo(it, sh); markCurrent();
+  if(!it.tinted) coverColor(it.coverId || vidOf(it)).then(c=>{ it.tinted = true; if(c){ it.room = c; if(now.item === it) paintDeck(it, sh); } });
+  if(!playerReady){ pendingDrop = d; return; }
+  if(ytState === 1 && motor > 0.05) await motorStop({ms:520});
+  pendingSpinUp = true;
+  player.setVolume(0);
+  if(sh.kind === "crate" && it.list){
+    now.queue = null;
+    player.loadPlaylist({list: it.list, listType:"playlist", index:0});
+  } else {
+    const pool = sh.kind === "crate" ? sh.items.filter(x=>x.video) : sh.items;
+    let ids = pool.map(vidOf), at = ids.indexOf(vidOf(it));
+    const start = Math.max(0, at - 50); ids = ids.slice(start, start + 200); at -= start;
+    now.queue = ids;
+    player.loadPlaylist(ids, at);
+    if(d.shuffle) setTimeout(()=>player.setShuffle(true), 600);
+  }
+}
+
+/* =====================================================================
+   YouTube player + motor (spin-up / spin-down)
+   ===================================================================== */
+let player = null, playerReady = false, pendingDrop = null, pendingSpinUp = false;
+let ytState = -1, motor = 0, rpm = 33, pitch = 0, braking = false, baseVolume = 100, rampId = 0;
+const effRate = () => clamp((rpm === 45 ? 1.35 : 1) * (1 + pitch/100), 0.25, 2);
+
+window.onYouTubeIframeAPIReady = function(){
+  player = new YT.Player("yt", {
+    width:"96", height:"54",
+    playerVars:Object.assign({playsinline:1, rel:0, modestbranding:1, controls:0, disablekb:1}, /^https?:/.test(location.origin) ? {origin:location.origin} : {}),
+    events:{
+      onReady: ()=>{ playerReady = true; if(pendingDrop){ const d = pendingDrop; pendingDrop = null; dropOnDeck(d); } },
+      onStateChange: onState,
+      onError: e=>{
+        const msg = {2:"That link has a bad ID.",5:"This track can't play in an embedded player.",100:"That track is private or was removed.",101:"The label doesn't allow this track outside YouTube.",150:"The label doesn't allow this track outside YouTube.",153:"YouTube refused playback. Open Spindle from a web address (http://…), not as a file."}[e.data] || "YouTube couldn't play that track.";
+        toast(msg + (e.data!==153 ? " Skipping." : ""));
+        if(e.data !== 153) setTimeout(()=>player.nextVideo(), 900);
+      }
+    }
+  });
+};
+
+let lastRate = 1, lastAudioAt = 0;
+function applyAudio(force){
+  if(!playerReady) return;
+  const t = performance.now();
+  if(!force && t - lastAudioAt < 110) return;
+  lastAudioAt = t;
+  const r = Math.round(clamp(effRate()*Math.max(motor, 0.25), 0.25, 2) * 20) / 20;
+  if(r !== lastRate){ player.setPlaybackRate(r); lastRate = r; }
+  player.setVolume(Math.round(baseVolume * clamp(motor*1.25, 0, 1)));
+}
+function restoreAudio(){ if(!playerReady) return; player.setPlaybackRate(effRate()); lastRate = effRate(); player.setVolume(baseVolume); }
+function ramp(to, ms, audio=true){
+  const id = ++rampId, from = motor, t0 = performance.now();
+  return new Promise(res=>{
+    (function step(){
+      if(id !== rampId) return res(false);
+      const k = clamp((performance.now() - t0)/ms, 0, 1);
+      const e = to > from ? 1 - Math.pow(1-k, 3) : k*k;
+      motor = from + (to - from)*e;
+      if(audio) applyAudio(k === 1);
+      if(k < 1) requestAnimationFrame(step); else res(true);
+    })();
+  });
+}
+function spinUp(ms=1100){ motor = Math.min(motor, 0.05); applyAudio(true); ramp(1, ms).then(ok=>{ if(ok) restoreAudio(); }); }
+async function motorStop({pause=true, ms=1300}={}){
+  const ok = await ramp(0, ms);
+  if(ok && pause){ player.pauseVideo(); setTimeout(restoreAudio, 200); }
+}
+function motorStart(){
+  if(!playerReady) return;
+  if(!now.item){ dropOnDeck({kind:"track", shelfId:activeId, index:0}); return; }
+  if(ytState === 0 || ytState === -1 || ytState === 5){
+    const sh = getShelf(now.shelfId) || crate;
+    dropOnDeck({kind:"track", shelfId:sh.id, index:Math.max(0, sh.items.indexOf(now.item))}); return;
+  }
+  pendingSpinUp = true; player.setVolume(0); player.playVideo();
+}
+function togglePlay(){ if(!playerReady) return; if(ytState === 1 && motor > 0.5) motorStop(); else motorStart(); }
+
+function boothText(){
+  const rpmTxt = rpm === 45 ? "45" : "33⅓";
+  return ytState === 1 ? `Booth 1 · spinning ${rpmTxt}` : ytState === 2 ? "Booth 1 · paused" : ytState === 3 ? "Booth 1 · cueing" : "Booth 1 free · Spindle";
+}
+function onState(e){
+  ytState = e.data;
+  const playing = e.data === 1;
+  document.body.classList.toggle("playing", playing);
+  $("dot").classList.toggle("on", playing);
+  $("booth-text").textContent = boothText();
+  $("play").setAttribute("aria-label", playing ? "Stop motor" : "Start motor");
+  $("play-icon").innerHTML = playing ? '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>' : '<path d="M7 4v16l13-8z"/>';
+  if(playing){
+    if(pendingSpinUp){ pendingSpinUp = false; spinUp(); }
+    else if(motor < 0.99 && !braking) spinUp(500);
+    else if(Math.abs(player.getPlaybackRate() - effRate()) > 0.01) restoreAudio();
+    updateTrack();
+  }
+  if(e.data === 3) updateTrack();
+  if(e.data === 2 && motor > 0.05 && !braking) ramp(0, 700, false);
+  if(e.data === 0) ramp(0, 1600, false);
+}
+function updateTrack(){
+  const d = player.getVideoData ? player.getVideoData() : null; if(!d || !d.video_id) return;
+  const t = tidy(d.title, d.author);
+  $("np-t").textContent = t.title || "—";
+  $("np-a").textContent = t.artist || "YouTube";
+  const list = player.getPlaylist && player.getPlaylist();
+  const idx = player.getPlaylistIndex ? player.getPlaylistIndex() : 0;
+  $("side").textContent = sideLabel(Math.max(0, idx));
+  const sh = getShelf(now.shelfId); if(!sh) return;
+  if(sh.kind === "crate" && now.item?.list){
+    let changed = false;
+    if(!now.item.coverId && (list?.[0] || d.video_id)){ now.item.coverId = list?.[0] || d.video_id; changed = true; }
+    if(!now.item.artist && t.artist){ now.item.artist = t.artist; changed = true; }
+    if(changed){ saveCrate(); paintDeck(now.item, sh); if(activeId === "crate"){ renderRow(); } }
+    return;
+  }
+  const it = sh.items.find(x=>vidOf(x) === d.video_id);
+  if(it && it !== now.item){ now.item = it; swapTo(it, sh); markCurrent(); }
+}
+
+/* platter render loop */
+let angle = 0, lastT = performance.now();
+(function frame(t){
+  const dt = Math.min(64, t - lastT); lastT = t;
+  if(!reduceMotion) angle = (angle + dt/1000 * (rpm === 45 ? 45 : 33.333)/60 * 360 * (1 + pitch/100) * motor) % 360;
+  $("disc").style.transform = `rotate(${angle}deg)`;
+  requestAnimationFrame(frame);
+})(lastT);
+
+/* hand on the record: hold to brake */
+$("record").addEventListener("pointerdown", e=>{
+  if(!playerReady || ytState !== 1) return;
+  e.preventDefault(); braking = true; $("record").setPointerCapture(e.pointerId);
+  ramp(0, 520).then(ok=>{ if(ok && braking) player.pauseVideo(); });
+});
+function releaseBrake(){
+  if(!braking) return; braking = false;
+  if(ytState === 2){ pendingSpinUp = true; player.setVolume(0); player.playVideo(); } else spinUp(450);
+}
+$("record").addEventListener("pointerup", releaseBrake);
+$("record").addEventListener("pointercancel", releaseBrake);
+
+/* controls */
+$("play").onclick = togglePlay;
+$("next").onclick = ()=>{ if(!playerReady) return; const l = player.getPlaylist(); if(l && l.length > 1) player.nextVideo(); };
+$("prev").onclick = ()=>{ if(!playerReady) return; if(player.getCurrentTime() > 3) return player.seekTo(0, true); const l = player.getPlaylist(); if(l && l.length > 1) player.previousVideo(); };
+$("more").onclick = ()=>{ const open = $("decks").hidden; $("decks").hidden = !open; $("more").setAttribute("aria-expanded", open); };
+let seeking = false;
+$("seek").addEventListener("input", ()=>{ seeking = true; $("prog").style.width = ($("seek").value/10) + "%"; });
+$("seek").addEventListener("change", ()=>{ seeking = false; if(playerReady) player.seekTo(player.getDuration()*$("seek").value/1000, true); });
+setInterval(()=>{
+  if(!playerReady || !player.getDuration) return;
+  const dur = player.getDuration()||0, cur = player.getCurrentTime()||0;
+  $("cur").textContent = fmt(cur); $("dur").textContent = fmt(dur);
+  if(!seeking){ const v = dur ? cur/dur*1000 : 0; $("seek").value = v; $("prog").style.width = (v/10) + "%"; }
+  if(now.item && dur && !now.item.dur && !now.item.list && ytState === 1){ now.item.dur = dur; paintDeck(now.item, getShelf(now.shelfId)); }
+}, 500);
+
+function showRate(){
+  const want = effRate();
+  $("rate").textContent = "×" + want.toFixed(2);
+  if(playerReady && motor > 0.99){
+    player.setPlaybackRate(want); lastRate = want;
+    setTimeout(()=>{ const got = player.getPlaybackRate(); if(Math.abs(got - want) > 0.01){ $("rate").textContent = `×${got.toFixed(2)}`; $("rate").title = `YouTube rounded ×${want.toFixed(2)} to ×${got.toFixed(2)}`; } }, 350);
+  }
+}
+function setRpm(v){
+  rpm = v; $("rpm33").setAttribute("aria-pressed", v===33); $("rpm45").setAttribute("aria-pressed", v===45);
+  if(motor > 0.99 && ytState === 1){ motor = 0.75; ramp(1, 600).then(ok=>ok && restoreAudio()); }
+  $("booth-text").textContent = boothText();
+  showRate();
+}
+$("rpm33").onclick = ()=>setRpm(33);
+$("rpm45").onclick = ()=>setRpm(45);
+$("pitch").addEventListener("input", ()=>{ pitch = +$("pitch").value; showRate(); });
+$("pitch").addEventListener("dblclick", ()=>{ $("pitch").value = 0; pitch = 0; showRate(); });
+
+/* radio: YouTube's own mix seeded from the current track */
+$("radio").onclick = async ()=>{
+  if(!playerReady) return;
+  const d = player.getVideoData && player.getVideoData();
+  const seed = d?.video_id || vidOf(now.item);
+  if(!seed){ toast("Play something first, then start a radio from it."); return; }
+  const t = tidy(d?.title, d?.author);
+  let sh = getShelf("radio");
+  if(!sh){ sh = {id:"radio", kind:"radio", items:[], loaded:true}; shelves.splice(1, 0, sh); }
+  sh.name = "Radio · " + (t.title || "this track"); sh.items = []; sh.color = now.item?.color || "#3d4a7a"; sh.loading = true; sh.error = null;
+  setActive("radio");
+  now.shelfId = "radio"; now.queue = null;
+  pendingSpinUp = true; player.setVolume(0);
+  player.loadPlaylist({list:"RD" + seed, listType:"playlist", index:0});
+  for(let i=0; i<20; i++){ await sleep(400); const l = player.getPlaylist(); if(l && l.length > 1) break; }
+  const ids = player.getPlaylist() || [];
+  sh.loading = false;
+  if(!ids.length){ sh.error = "YouTube didn't return a mix for this track."; renderRow(); return; }
+  sh.items = await nameTracks(ids); sh.total = sh.items.length; sh.entered = false;
+  renderTabs(); renderRow(); updateTrack(); markCurrent(); tintShelf(sh);
+};
+async function nameTracks(ids){
+  if(token){
+    try{
+      const out = [];
+      for(let i=0; i<ids.length; i+=50){
+        const r = await api("videos", {part:"snippet", id: ids.slice(i, i+50).join(",")});
+        const byId = Object.fromEntries((r.items||[]).map(x=>[x.id, x]));
+        ids.slice(i, i+50).forEach(id=>{ const x = byId[id]; out.push(x ? toTrack(id, x.snippet.title, x.snippet.channelTitle) : toTrack(id, "Track", "")); });
+      }
+      return out;
+    }catch(e){}
+  }
+  return Promise.all(ids.slice(0, 40).map(async id=>{
+    try{ const j = await (await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent("https://www.youtube.com/watch?v="+id)}`)).json(); return toTrack(id, j.title, j.author_name); }
+    catch(e){ return toTrack(id, "Track", ""); }
+  }));
+}
+
+/* =====================================================================
+   Wall physics: lean with speed, wheel + grab to slide with momentum
+   ===================================================================== */
+function attachShelfPhysics(row){
+  if(row._phys) return; row._phys = true;
+  let last = row.scrollLeft, lastT = performance.now(), lean = 0, target = 0, raf = 0;
+  const step = ()=>{
+    lean += (target - lean) * 0.2; target *= 0.86;
+    row.style.setProperty("--lean", lean.toFixed(2) + "deg");
+    if(Math.abs(lean) > 0.05 || Math.abs(target) > 0.05) raf = requestAnimationFrame(step);
+    else { raf = 0; row.style.setProperty("--lean", "0deg"); }
+  };
+  if(!reduceMotion) row.addEventListener("scroll", ()=>{
+    const t = performance.now(), v = (row.scrollLeft - last) / Math.max(8, t - lastT);
+    last = row.scrollLeft; lastT = t; target = clamp(v * 5, -9, 9);
+    if(!raf) raf = requestAnimationFrame(step);
+  }, {passive:true});
+  row.addEventListener("wheel", e=>{
+    if(Math.abs(e.deltaY) > Math.abs(e.deltaX) && row.scrollWidth > row.clientWidth){ e.preventDefault(); row.scrollLeft += e.deltaY; }
+  }, {passive:false});
+  row.addEventListener("pointerdown", e=>{
+    if(e.pointerType !== "mouse" || e.button !== 0 || e.target !== row) return;
+    e.preventDefault();
+    drag = {el:row, data:null, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, started:false, touch:false};
+  });
+}
+function fling(row, v){
+  let t0 = performance.now();
+  (function go(t){
+    const dt = Math.min(32, t - t0); t0 = t;
+    row.scrollLeft += v * dt; v *= Math.pow(0.94, dt/16);
+    if(Math.abs(v) > 0.02) requestAnimationFrame(go);
+  })(t0);
+}
+
+/* =====================================================================
+   Drag & drop (mouse: pull upward; touch: press and hold, then drag)
+   ===================================================================== */
+let drag = null, justDragged = false;
+function armDrag(el, data){
+  el.addEventListener("pointerdown", e=>{
+    if(e.button !== 0) return;
+    if(e.pointerType === "mouse") e.preventDefault();
+    e.stopPropagation();
+    drag = {el, data, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, started:false, touch:e.pointerType !== "mouse"};
+    // touch: press and hold "arms" the record (and shows its sleeve); then move to pull it out
+    if(drag.touch){ const d = drag; d.timer = setTimeout(()=>{ if(drag === d && !d.started){ d.armed = true; if(navigator.vibrate) try{ navigator.vibrate(8); }catch(e){} } }, 240); }
+  });
+}
+function dragItem(data){
+  const sh = getShelf(data.shelfId); if(!sh) return null;
+  return data.kind === "track" ? sh.items[data.index] : (sh.items[0] ? {...sh.items[0], color: sh.color} : {color: sh.color});
+}
+function beginDrag(){
+  drag.started = true;
+  hidePeek();
+  const it = dragItem(drag.data) || {};
+  const g = document.createElement("div"); g.className = "ghost";
+  const cover = it.coverId || vidOf(it);
+  g.style.setProperty("--c", it.color || "#333");
+  g.innerHTML = `<div class="g-disc"></div><div class="g-sleeve" style="${cover ? `background-image:url(${thumb(cover)})` : ""}"></div>`;
+  document.body.appendChild(g); drag.ghost = g;
+  drag.el.classList.add("lifted");
+  document.body.classList.add("dragging");
+  if(navigator.vibrate && drag.touch) try{ navigator.vibrate(12); }catch(e){}
+  moveGhost();
+}
+function overDeck(x, y){
+  const r = $("platter").getBoundingClientRect(), pad = 60;
+  const b = $("booth").getBoundingClientRect();
+  return (x > r.left - pad && x < r.right + r.width*0.5 + pad && y > r.top - pad && y < r.bottom + pad) || (y < b.bottom - 4 && y > b.top);
+}
+function moveGhost(){
+  const tilt = clamp((drag.x - (drag.px ?? drag.x)) * 0.8, -18, 18); drag.px = drag.x;
+  drag.ghost.style.transform = `translate(${drag.x - 45}px, ${drag.y - 62}px) rotate(${-6 + tilt}deg)`;
+  document.body.classList.toggle("drag-over", overDeck(drag.x, drag.y));
+}
+function endDrag(drop){
+  const d = drag; drag = null;
+  clearTimeout(d.timer);
+  if(!d.started){ if(d.armed){ justDragged = true; setTimeout(()=>justDragged = false, 400); } return; }
+  justDragged = true; setTimeout(()=>justDragged = false, 50);
+  if(d.mode === "scroll"){ d.row.classList.remove("scrolling"); fling(d.row, -d.vx); return; }
+  d.el.classList.remove("lifted");
+  document.body.classList.remove("dragging", "drag-over");
+  if(drop && overDeck(d.x, d.y)){
+    const r = $("platter").getBoundingClientRect();
+    d.ghost.style.transition = "transform .3s cubic-bezier(.3,.7,.2,1), opacity .3s";
+    d.ghost.style.transform = `translate(${r.left + r.width/2 - 45}px, ${r.top + r.height/2 - 45}px) scale(${r.width/90}) rotate(0deg)`;
+    d.ghost.style.opacity = "0";
+    setTimeout(()=>d.ghost.remove(), 320);
+    dropOnDeck(d.data);
+  } else {
+    const r = d.el.getBoundingClientRect();
+    d.ghost.style.transition = "transform .25s ease, opacity .25s";
+    d.ghost.style.transform = `translate(${r.left - 30}px, ${r.top}px) scale(.4)`; d.ghost.style.opacity = "0";
+    setTimeout(()=>d.ghost.remove(), 260);
+  }
+}
+document.addEventListener("pointermove", e=>{
+  if(!drag) return;
+  drag.x = e.clientX; drag.y = e.clientY;
+  const dist = Math.hypot(drag.x - drag.x0, drag.y - drag.y0);
+  if(!drag.started){
+    if(drag.touch){
+      if(drag.armed){ if(dist > 6) beginDrag(); }
+      else if(dist > 10){ clearTimeout(drag.timer); drag = null; }   // it's a scroll
+      return;
+    }
+    if(dist <= 6) return;
+    const dx = drag.x - drag.x0, dy = drag.y - drag.y0;
+    const row = drag.el.closest(".shelf, .pile");
+    if(row && (!drag.data || Math.abs(dx) > Math.abs(dy) * 1.3)){
+      Object.assign(drag, {started:true, mode:"scroll", row, sl0:row.scrollLeft, vx:0, lx:drag.x, lt:performance.now()});
+      row.classList.add("scrolling");
+    } else if(drag.data) beginDrag();
+    else { drag = null; return; }
+  }
+  if(drag.mode === "scroll"){
+    const t = performance.now(), dt = Math.max(1, t - drag.lt);
+    drag.vx = drag.vx * 0.6 + ((drag.x - drag.lx) / dt) * 0.4; drag.lx = drag.x; drag.lt = t;
+    drag.row.scrollLeft = drag.sl0 - (drag.x - drag.x0);
+    return;
+  }
+  moveGhost();
+});
+document.addEventListener("pointerup", ()=>{ if(drag) endDrag(true); });
+document.addEventListener("pointercancel", ()=>{ if(drag) endDrag(false); });
+document.addEventListener("touchmove", e=>{ if(drag && (drag.started || drag.armed)) e.preventDefault(); }, {passive:false});
+
+/* keyboard */
+document.addEventListener("keydown", e=>{
+  if(e.key === "Escape"){
+    if(drag) return endDrag(false);
+    if(!$("tour").hidden && !document.querySelector("dialog[open]")) return endTour();
+  }
+  if(e.target.closest("input,textarea,dialog")) return;
+  if(e.code === "Space"){ e.preventDefault(); togglePlay(); }
+  else if(e.key === "ArrowRight") $("next").click();
+  else if(e.key === "ArrowLeft") $("prev").click();
+});
+
+/* view toggle */
+function setView(v){
+  document.body.classList.toggle("pile-view", v === "pile");
+  $("v-shelf").setAttribute("aria-pressed", v !== "pile"); $("v-pile").setAttribute("aria-pressed", v === "pile");
+  store.set("spindle.view", v);
+}
+$("v-shelf").onclick = ()=>setView("shelf");
+$("v-pile").onclick = ()=>setView("pile");
+
+/* remove crate record */
+$("remove").onclick = ()=>{
+  const it = now.item; if(!it || now.shelfId !== "crate") return;
+  const b = $("remove");
+  if(b.dataset.armed !== "1"){ b.dataset.armed = "1"; b.textContent = "Click again to remove"; setTimeout(()=>{ b.dataset.armed=""; b.textContent="Remove from crate"; }, 3000); return; }
+  b.dataset.armed = ""; b.textContent = "Remove from crate";
+  crate.items = crate.items.filter(x=>x !== it); saveCrate();
+  if(playerReady && ytState === 1) motorStop();
+  now.item = null; document.body.classList.remove("loaded");
+  $("m-artist").textContent = "Pick a record"; $("m-title").textContent = "From the wall"; $("m-grade").textContent = "Drag a spine onto the deck";
+  $("remove").hidden = true;
+  if(activeId === "crate") renderRow(); renderTabs(); toast(`Removed “${it.title}”`);
+};
+
+/* =====================================================================
+   Add-to-crate dialog + paste anywhere
+   ===================================================================== */
+function parseLink(raw){
+  const s = (raw||"").trim();
+  if(!s) return {err:"Paste a link first."};
+  if(/^[\w-]{11}$/.test(s)) return {video:s};
+  if(/^(PL|OLAK5uy_|RD|OL|UU|FL)[\w-]+$/.test(s)) return {list:s};
+  let u; try{ u = new URL(s); }catch(e){ return {err:"That doesn't look like a link."}; }
+  if(!/(^|\.)youtube\.com$|(^|\.)youtu\.be$/.test(u.hostname)) return {err:"Use a YouTube or YouTube Music link."};
+  if(u.pathname.startsWith("/browse/")) return {err:"That's an album page link. On the album, use Share → Copy link instead (it should contain “list=”)."};
+  if(u.pathname.startsWith("/channel/") || u.pathname.startsWith("/@")) return {err:"Artist pages can't be played. Pick an album or song from that artist."};
+  let video = u.searchParams.get("v"); const list = u.searchParams.get("list");
+  if(u.hostname.endsWith("youtu.be")) video = u.pathname.slice(1,12);
+  const m = u.pathname.match(/^\/(shorts|embed|live)\/([\w-]{11})/); if(m) video = m[2];
+  if(!video && !list) return {err:"Couldn't find a song or playlist in that link."};
+  return {video, list};
+}
+async function lookup(p){
+  const target = p.list && !p.video ? `https://www.youtube.com/playlist?list=${p.list}` : `https://www.youtube.com/watch?v=${p.video}`;
+  const r = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(target)}`);
+  if(!r.ok) throw new Error(r.status);
+  const j = await r.json();
+  const vid = (j.thumbnail_url||"").match(/\/vi\/([\w-]{11})\//);
+  return {title: cleanTitle(j.title), artist: cleanArtist(j.author_name), coverId: vid ? vid[1] : p.video || null};
+}
+let fColor = PALETTE[0], fParsed = null, fCover = null;
+function renderSwatches(){
+  const box = $("f-swatches"); box.innerHTML = "";
+  PALETTE.slice(0, 14).forEach(c=>{
+    const b = document.createElement("button"); b.type = "button"; b.style.setProperty("--c", c);
+    b.setAttribute("aria-label", "Colour " + c); b.setAttribute("aria-pressed", c === fColor);
+    b.onclick = ()=>{ fColor = c; renderSwatches(); }; box.appendChild(b);
+  });
+  const pick = document.createElement("input"); pick.type = "color"; pick.value = fColor; pick.setAttribute("aria-label","Custom colour");
+  pick.oninput = ()=>{ fColor = pick.value; box.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed","false")); };
+  box.appendChild(pick);
+}
+function openAdd(prefill){
+  $("add-form").reset(); fParsed = null; fCover = null;
+  fColor = PALETTE[Math.floor(Math.random()*14)];
+  $("f-status").textContent = ""; $("f-status").classList.remove("err"); $("f-preview").hidden = true;
+  renderSwatches(); $("add").showModal(); $("f-link").focus();
+  if(typeof prefill === "string"){ $("f-link").value = prefill; $("f-link").dispatchEvent(new Event("input")); }
+}
+$("open-add").onclick = ()=>openAdd();
+$("f-cancel").onclick = ()=>$("add").close();
+$("f-paste").onclick = async ()=>{
+  try{
+    const t = (await navigator.clipboard.readText()).trim();
+    if(!t){ toast("Your clipboard is empty. Copy a playlist link first."); return; }
+    $("f-link").value = t; $("f-link").dispatchEvent(new Event("input"));
+  }catch(e){ $("f-link").focus(); toast("Your browser blocked the Paste button. Press Ctrl+V (⌘V on Mac) or long-press the box and choose Paste."); }
+};
+let lookupT;
+$("f-link").addEventListener("input", ()=>{
+  clearTimeout(lookupT);
+  lookupT = setTimeout(async ()=>{
+    const p = parseLink($("f-link").value), st = $("f-status");
+    if(p.err){ fParsed = null; if($("f-link").value.trim()){ st.textContent = p.err; st.classList.add("err"); } $("f-preview").hidden = true; return; }
+    fParsed = p; st.classList.remove("err");
+    st.textContent = p.list ? "Album / playlist found. Looking it up…" : "Song found. Looking it up…";
+    try{
+      const info = await lookup(p); fCover = info.coverId;
+      if(!$("f-title").value) $("f-title").value = info.title;
+      if(!$("f-artist").value) $("f-artist").value = info.artist;
+      $("f-art").style.backgroundImage = fCover ? `url(${thumb(fCover)})` : "none";
+      $("f-found").textContent = `${info.title}${info.artist ? " · " + info.artist : ""}`;
+      $("f-preview").hidden = false; st.textContent = "";
+      const c = await coverColor(fCover); if(c){ fColor = c; renderSwatches(); }
+    }catch(err){ st.textContent = "Couldn't fetch details (it may be private). You can still add it and name it yourself."; }
+  }, 350);
+});
+$("add-form").addEventListener("submit", e=>{
+  e.preventDefault();
+  const p = fParsed || parseLink($("f-link").value);
+  if(!p || p.err){ $("f-status").textContent = (p && p.err) || "Paste a YouTube Music link."; $("f-status").classList.add("err"); return; }
+  const rec = {id:"r"+Date.now().toString(36), title:$("f-title").value.trim() || (p.list ? "Untitled album" : "Untitled single"), artist:$("f-artist").value.trim(), color:fColor, coverId:fCover || p.video || null};
+  if(p.list) rec.list = p.list; else rec.video = p.video;
+  crate.items.push(rec); saveCrate(); $("add").close();
+  if(activeId !== "crate") setActive("crate"); else { renderTabs(); renderRow(); }
+  dropOnDeck({kind:"track", shelfId:"crate", index:crate.items.length-1});
+  toast(`“${rec.title}” is in your crate`);
+});
+document.addEventListener("paste", e=>{
+  if(e.target.closest && e.target.closest("input,textarea")) return;
+  const t = (e.clipboardData && e.clipboardData.getData("text") || "").trim();
+  if(!t) return;
+  const p = parseLink(t);
+  if(p.err){ toast("That isn't a YouTube Music link. Copy a playlist or album link and try again."); return; }
+  e.preventDefault(); openAdd(t);
+});
+
+/* =====================================================================
+   Connect dialog
+   ===================================================================== */
+function openConnect(){
+  $("origin").textContent = location.origin;
+  $("c-id").value = clientId; $("c-status").textContent = ""; $("c-status").classList.remove("err");
+  $("connect").showModal(); $("c-id").focus();
+}
+$("c-cancel").onclick = ()=>$("connect").close();
+$("connect-form").addEventListener("submit", e=>{
+  e.preventDefault();
+  const v = $("c-id").value.trim();
+  if(!/\.apps\.googleusercontent\.com$/.test(v)){ $("c-status").textContent = "A Client ID ends in .apps.googleusercontent.com."; $("c-status").classList.add("err"); return; }
+  clientId = v; store.set("spindle.clientId", v); tokenClient = null;
+  $("connect").close(); renderAccount(); renderTabs(); signIn();
+});
+$("account").addEventListener("dblclick", openConnect);
+
+/* =====================================================================
+   Share QR (top-left, like a shop sticker)
+   ===================================================================== */
+function shareUrl(){ const u = new URL(location.href); [...u.searchParams.keys()].filter(k=>/^(utm_|fbclid|gclid)/.test(k)).forEach(k=>u.searchParams.delete(k)); u.hash = ""; return u.toString(); }
+function drawQR(){
+  if(!window.qrcode || !/^https?:/.test(location.protocol)){ $("qr").hidden = true; return; }
+  try{ const q = qrcode(0, "L"); q.addData(shareUrl()); q.make(); $("qr").innerHTML = q.createSvgTag({cellSize:2, margin:0, scalable:true}); }
+  catch(e){ $("qr").hidden = true; }
+}
+$("qr").onclick = async ()=>{
+  try{ await navigator.clipboard.writeText(shareUrl()); toast("Link copied. Send it to a friend."); }
+  catch(e){ toast(shareUrl()); }
+};
+window.addEventListener("load", drawQR);
+
+/* =====================================================================
+   First-run tour
+   ===================================================================== */
+const mod = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "⌘" : "Ctrl";
+const bars = cs => cs.map(c=>`<i style="--c:${c}"></i>`).join("");
+const TOUR = [
+  {
+    target: ()=>$("shelf").offsetParent ? $("shelf") : $("pile"),
+    art: `<div class="a-disc"></div><div class="a-shelf">${bars(["#3d4a7a","#c8452f","#161412","#2f6b5e","#d9a53a","#6b4f8a","#8f4a25"])}</div><div class="a-fly"></div><div class="a-hand"></div>`,
+    title: "Pull a record, drop it on the deck",
+    body: () => `<p>Every spine on the wall is a record. ${isTouch ? "Press and hold one, then drag it" : "Pull one"} up onto the turntable. You can also just ${isTouch ? "tap" : "click"} it.</p><p>Hold the spinning record to brake it. Let go and it spins back up.</p>`,
+  },
+  {
+    art: `<div class="a-cap" style="left:22px;top:8px">On a phone</div><div class="a-cap" style="left:158px;top:20px">On a computer</div>
+      <div class="a-phone"><div class="pl"></div><div class="pt">Late night drive</div>⋮ &nbsp;Share<div class="a-sheet"><span>Add to queue</span><span class="cl">Copy link</span><span>Save to library</span></div></div>
+      <div class="a-browser"><div class="d3"><i></i><i></i><i></i></div><div class="a-url">music.youtube.com/<em>playlist?list=PL7q…</em></div></div>`,
+    title: "Copy a playlist from YouTube Music",
+    body: () => `<div class="how">
+        <span class="mono">Phone</span><span>Open the playlist or album, tap <b>Share</b> (or ⋮ then Share), then <b>Copy link</b>.</span>
+        <span class="mono">Computer</span><span>Open the playlist or album and copy the address bar. It should contain <kbd>list=</kbd>.</span>
+      </div><p>Single songs work the same way.</p>`,
+  },
+  {
+    target: ()=>$("open-add"),
+    art: `<div class="a-pill">music.youtube.com/playlist?list=…</div><div class="a-keys">${isTouch ? "<span>Paste</span>" : `<span>${mod}</span><span>V</span>`}</div><div class="a-shelf">${bars(["#3d4a7a","#c8452f","#161412"])}</div><div class="a-new"></div>`,
+    title: "Paste it into Spindle",
+    body: () => isTouch
+      ? `<p>Tap <b>+ Add record</b>, then <b>Paste</b>. Spindle finds the title, artist and cover, and the playlist goes in your crate as a new record.</p>`
+      : `<p>Press <kbd>${mod}</kbd> <kbd>V</kbd> anywhere on this page, or click <b>+ Add record</b> and then <b>Paste</b>. Spindle finds the title, artist and cover, and the playlist goes in your crate as a new record.</p>`,
+    cta: {label:"Try it", run: ()=>{ endTour(); openAdd(); }},
+  },
+  {
+    target: ()=>$("account"),
+    art: `<div class="a-avatar"><i></i>Sign in with Google</div><div class="a-tabs">
+      <div class="tt"><span>Liked</span><span>Late night drive</span><span>Gym</span><span>Sunday</span></div>
+      <div class="ss">${bars(["#c8452f","#d9a53a","#2f6b5e","#3d4a7a","#c2557a","#6b4f8a","#8f4a25","#4f7fa8","#b85a7a","#7a8a4f","#e0662a","#2b2b2b","#c8452f","#d9a53a","#2f6b5e","#3d4a7a","#c2557a","#6b4f8a","#8f4a25","#4f7fa8","#b85a7a","#7a8a4f","#e0662a","#2b2b2b","#8fa9bd","#45526b"])}</div></div>`,
+    title: "Or bring your whole library",
+    body: () => clientId
+      ? `<p>Sign in with Google and every playlist, plus your likes, becomes a crate on the wall. No copying needed.</p>`
+      : `<p>After a one-time Google setup, every playlist and your likes become crates on the wall. Tap <b>Connect YouTube</b> at the top for the steps. Copying and pasting works without it.</p>`,
+    last: true,
+  },
+];
+let tourStep = 0, tourTarget = null;
+function renderTour(){
+  const s = TOUR[tourStep], el = $("tour");
+  tourTarget?.classList.remove("tour-target");
+  tourTarget = s.target ? s.target() : null;
+  if(tourTarget) tourTarget.classList.add("tour-target");
+  el.innerHTML = `
+    <div class="art" aria-hidden="true">${s.art}</div>
+    <div class="tb">
+      <div class="mono" style="color:#7b756d">Step ${tourStep+1} of ${TOUR.length}</div>
+      <h3 id="tour-h">${s.title}</h3>
+      ${s.body()}
+      <div class="foot">
+        <div class="dots">${TOUR.map((_,i)=>`<i class="${i===tourStep?"on":""}"></i>`).join("")}</div>
+        ${s.last ? "" : `<button class="skip mono" id="t-skip">Skip</button>`}
+        ${tourStep ? `<button class="btn" id="t-back">Back</button>` : ""}
+        ${s.cta ? `<button class="btn" id="t-cta">${s.cta.label}</button>` : ""}
+        <button class="btn primary" id="t-next">${s.last ? "Start listening" : "Next"}</button>
+      </div>
+    </div>`;
+  el.hidden = false;
+  $("t-next").onclick = ()=>{ if(s.last) endTour(); else { tourStep++; renderTour(); } };
+  if($("t-back")) $("t-back").onclick = ()=>{ tourStep--; renderTour(); };
+  if($("t-skip")) $("t-skip").onclick = endTour;
+  if($("t-cta")) $("t-cta").onclick = s.cta.run;
+  $("t-next").focus({preventScroll:true});
+}
+function startTour(){ tourStep = 0; renderTour(); }
+function endTour(){ $("tour").hidden = true; tourTarget?.classList.remove("tour-target"); tourTarget = null; store.set("spindle.toured", true); }
+$("open-tour").onclick = startTour;
+
+/* =====================================================================
+   Boot
+   ===================================================================== */
+if(location.protocol === "file:"){
+  $("hint").hidden = false;
+  $("hint").textContent = "YouTube and Google sign-in won't work from a file:// page. Paste this into CodePen, or serve the folder (python3 -m http.server 8000).";
+}
+setView(store.get("spindle.view", "shelf"));
+renderAccount();
+if(crate.items[0]){ now.shelfId = "crate"; now.item = crate.items[0]; }
+renderWall();
+if(now.item){ paintDeck(now.item, crate); document.body.classList.add("loaded"); tintShelf(crate); }
+if(token) loadLibrary();
+showRate();
+if(!store.get("spindle.toured", false)) setTimeout(startTour, 1100);
+const tag = document.createElement("script"); tag.src = "https://www.youtube.com/iframe_api"; document.head.appendChild(tag);
+
+/* =====================================================================
+   Phone app: install to home screen + offline shell
+   ===================================================================== */
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+let installEvt = null;
+if("serviceWorker" in navigator && location.protocol === "https:" ){
+  navigator.serviceWorker.register("sw.js").catch(()=>{});   // only works when sw.js is hosted next to this page
+}
+window.addEventListener("beforeinstallprompt", e=>{ e.preventDefault(); installEvt = e; $("open-install").hidden = false; });
+window.addEventListener("appinstalled", ()=>{ $("open-install").hidden = true; toast("Spindle is on your home screen."); });
+if(!standalone && (isIOS || isTouch)) $("open-install").hidden = false;
+$("open-install").onclick = async ()=>{
+  if(installEvt){ installEvt.prompt(); const r = await installEvt.userChoice.catch(()=>null); installEvt = null; if(r && r.outcome === "accepted") $("open-install").hidden = true; return; }
+  $("install-body").innerHTML = isIOS
+    ? `<ol><li>Open this page in <b>Safari</b>.</li><li>Tap the <b>Share</b> button (the square with an arrow).</li><li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li></ol><p>Spindle opens full-screen from its own icon, with the status bar tinted by whatever is on the deck.</p>`
+    : `<ol><li>Open your browser menu (<b>⋮</b>).</li><li>Tap <b>Install app</b> or <b>Add to Home screen</b>.</li></ol><p>Spindle opens full-screen from its own icon. If you don't see the option, open the page from its own web address rather than inside CodePen's editor.</p>`;
+  $("install").showModal();
+};
+</script>
+</body>
+</html>
